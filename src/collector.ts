@@ -160,6 +160,31 @@ export async function collect(lab: LabConfig, timeoutMs: number): Promise<Collec
 	}
 }
 
+/** Update only an interface description; callers cannot submit arbitrary commands. */
+export async function setInterfaceDescription(lab: LabConfig, switchId: string, interfaceName: string, description: string, timeoutMs: number): Promise<ExecResult> {
+	if (!/^Ethernet\d+$/.test(interfaceName)) throw new Error('only Ethernet interfaces can be modified')
+	if (description.length > 128 || /[\r\n]/.test(description)) throw new Error('description must be one line and at most 128 characters')
+	const sw = lab.switches.find((item) => item.id === switchId)
+	if (sw === undefined) throw new Error('unknown switch')
+	const jump = await connectClient({ host: lab.jumphost.host, port: lab.jumphost.port ?? 22, username: lab.jumphost.username, password: lab.jumphost.password, readyTimeout: Math.min(timeoutMs, 12000) })
+	try {
+		const channel = await new Promise<Client>((resolve, reject) => {
+			jump.forwardOut('127.0.0.1', 0, sw.ip, lab.switch.port ?? 22, (error, stream) => {
+				if (error !== undefined && error !== null) { reject(error); return }
+				if (stream === undefined) { reject(new Error('forwardOut returned no stream')); return }
+				const target = new Client()
+				target.on('ready', () => resolve(target))
+				target.on('error', reject)
+				target.connect({ sock: stream, username: lab.switch.username, password: lab.switch.password, readyTimeout: Math.min(timeoutMs, 12000) })
+			})
+		})
+		try {
+			const quoted = description.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+			return await execOnClient(channel, 'sudo config interface description ' + interfaceName + ' "' + quoted + '"', timeoutMs)
+		} finally { channel.end() }
+	} finally { jump.end() }
+}
+
 /** Read the lock log (swl | tail -30) over a fresh short-lived connection. */
 export async function collectLockLog(lab: LabConfig, timeoutMs: number): Promise<{ text: string; error?: string }> {
 	const jump = await connectClient({

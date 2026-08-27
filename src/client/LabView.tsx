@@ -210,6 +210,14 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 	const selectedSw = topology?.switches.find((sw) => sw.id === selected)
 	const selectedLinks = topology?.links.filter((l) => l.a.sw === selected || l.b.sw === selected) ?? []
 	const selectedPortState = selectedSw?.ports.find((port) => port.name === selectedPort)
+	const editDescription = useCallback(async (): Promise<void> => {
+		if (selectedSw === undefined || selectedPortState === undefined) return
+		const next = window.prompt('修改端口描述', selectedPortState.description ?? '')
+		if (next === null) return
+		const response = await fetch('/api/lab/port-description', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ switchId: selectedSw.id, interfaceName: selectedPortState.name, description: next }) })
+		if (!response.ok) { setError('端口描述修改失败: ' + await response.text()); return }
+		await load(true)
+	}, [selectedSw, selectedPortState, load])
 	const unreachable = topology?.switches.filter((sw) => !sw.reachable) ?? []
 
 	return (
@@ -264,7 +272,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 						<p><span className="kv">IP</span><span className="lab-mono">{selectedSw.ip}</span></p>
 						<p><span className="kv">状态</span>{hydrated ? (selectedSw.reachable ? '可达' : <span className="lab-error">不可达: {selectedSw.error}</span>) : '正在采集…'}</p>
 						{selectedSw.version !== undefined && <p className="lab-mono" style={{ fontSize: 11 }}>{selectedSw.version}</p>}
-						{selectedPortState !== undefined && <div className="lab-port-focus"><strong>{selectedPortState.name}</strong><p><span className="kv">描述</span>{selectedPortState.description ?? '—'}</p><p><span className="kv">IP</span>{selectedPortState.ipAddresses?.join(', ') ?? '—'}</p><p><span className="kv">Admin / Oper</span>{selectedPortState.admin ?? '—'} / {selectedPortState.oper ?? '—'}</p></div>}
+						{selectedPortState !== undefined && <div className="lab-port-focus"><strong>{selectedPortState.name}</strong><button className="lab-btn" onClick={() => void editDescription()}>修改描述</button><p><span className="kv">描述</span>{selectedPortState.description ?? '—'}</p><p><span className="kv">IP</span>{selectedPortState.ipAddresses?.join(', ') ?? '—'}</p><p><span className="kv">Admin / Oper</span>{selectedPortState.admin ?? '—'} / {selectedPortState.oper ?? '—'}</p></div>}
 						<div className="lab-swdetail-links">
 							{selectedLinks.map((link) => (
 								<div key={link.id} className="lab-linkrow">

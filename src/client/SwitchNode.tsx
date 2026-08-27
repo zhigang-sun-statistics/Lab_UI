@@ -45,7 +45,7 @@ function FacePort({ port, row, onClick }: { port: FrontPort; row: 'top' | 'botto
 		port.peerLabel !== undefined ? '邻居 ' + port.peerLabel : undefined,
 	].filter(Boolean).join(' · ')
 	return (
-		<div className={'lab-face-port ' + row + ' ' + operClass(port) + (linked ? ' linked' : '')} title={title} onClick={() => onClick?.(port)} role={onClick === undefined ? undefined : 'button'} tabIndex={onClick === undefined ? undefined : 0}>
+		<div className={'lab-face-port ' + row + ' ' + operClass(port) + (linked ? ' linked' : '')} title={title} onClick={() => onClick?.(port)} onContextMenu={(event) => { event.preventDefault(); onClick?.(port) }} role={onClick === undefined ? undefined : 'button'} tabIndex={onClick === undefined ? undefined : 0}>
 			{row === 'top' ? <span className="lab-face-port-no">{port.slot}</span> : null}
 			<div className="lab-face-cage">
 				<span className="lab-face-cage-core" />

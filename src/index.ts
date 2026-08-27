@@ -14,7 +14,7 @@
  *   or a Sec-Fetch-Site same-origin/none marker; cross-site refuses.
  */
 import { loadLabConfig, type LabConfig, type LabPluginConfig } from './config.ts'
-import { collect, collectLockLog } from './collector.ts'
+import { collect, collectLockLog, setInterfaceDescription } from './collector.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { buildTopology } from './topology.ts'
 import { parseSws } from './parser.ts'
@@ -158,6 +158,21 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 				})
 				.finally(() => { inflightLocks = undefined })
 			writeJson(res, 200, await inflightLocks)
+		}),
+	}))
+
+	ctx.effect(() => ctx.webServer?.register({
+		kind: 'exact',
+		path: '/api/lab/port-description',
+		handler: guarded(async (req, res) => {
+			if (req.method !== 'POST') { writeJson(res, 405, { error: 'method not allowed' }); return }
+			const input = JSON.parse((req as LabHttpRequest & { body?: string }).body ?? '{}') as Record<string, unknown>
+			if (typeof input.switchId !== 'string' || typeof input.interfaceName !== 'string' || typeof input.description !== 'string') { writeJson(res, 400, { error: 'switchId, interfaceName and description are required' }); return }
+			const cfg = await lab()
+			const result = await setInterfaceDescription(cfg, input.switchId, input.interfaceName, input.description, timeoutMs)
+			if (result.code !== 0) { writeJson(res, 502, { error: result.err || result.out, code: result.code }); return }
+			topologyCache = undefined
+			writeJson(res, 200, { ok: true, output: result.out })
 		}),
 	}))
 

@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { loadLabConfig } from './config.ts'
-import { collect, collectLockLog } from './collector.ts'
+import { collect, collectLockLog, setInterfaceDescription } from './collector.ts'
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
@@ -70,6 +70,13 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (path === '/api/lab/locks' && req.method === 'GET') {
     const collected = await collect(lab, 15000)
     json(res, 200, { fetchedAt: Date.now(), groups: parseSws(collected.locks.raw), raw: collected.locks.raw, error: collected.locks.error }); return true
+  }
+  if (path === '/api/lab/port-description' && req.method === 'POST') {
+    const input = await body(req)
+    if (typeof input.switchId !== 'string' || typeof input.interfaceName !== 'string' || typeof input.description !== 'string') { json(res, 400, { error: 'switchId, interfaceName and description are required' }); return true }
+    const result = await setInterfaceDescription(lab, input.switchId, input.interfaceName, input.description, 15000)
+    if (result.code !== 0) { json(res, 502, { error: result.err || result.out, code: result.code }); return true }
+    json(res, 200, { ok: true, output: result.out }); return true
   }
   if (path === '/api/lab/locklog' && req.method === 'GET') {
     const result = await collectLockLog(lab, 15000)
