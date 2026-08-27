@@ -93,6 +93,26 @@
 .lab-mono { font-family:ui-monospace,Consolas,monospace; }
 .lab-swdetail-links { margin:8px 0; }
 .lab-linkrow { padding:2px 0; color:var(--dsw-alias-label-secondary,#c3cad6); }
+.lab-face-port[role=button] { cursor:pointer; }
+.lab-face-port[role=button]:hover .lab-face-cage { border-color:#58d8a7; box-shadow:0 0 0 1px #58d8a7,0 0 11px rgba(88,216,167,.35); }
+.lab-port-focus { margin:10px 0; padding:12px; border:1px solid #34424e; background:#0d1319; }
+.lab-port-focus-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+.lab-port-focus-head>div { display:flex; align-items:center; gap:7px; }
+.lab-port-focus-head small { color:#768695; font:10px ui-monospace,monospace; }
+.lab-port-state { display:inline-block; width:7px; height:7px; border-radius:50%; background:#68737e; }
+.lab-port-state.up { background:#48d79e; box-shadow:0 0 8px #48d79e; }
+.lab-port-state.down { background:#bd6871; }
+.lab-port-detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin-bottom:10px; background:#26313b; border:1px solid #26313b; }
+.lab-port-detail-grid p { margin:0; padding:7px 8px; display:flex; justify-content:space-between; background:#121920; font-size:10px; }
+.lab-port-detail-grid b { color:#d9e5ef; font:600 10px ui-monospace,monospace; }
+.lab-port-focus>p { margin:6px 0; font-size:10px; overflow-wrap:anywhere; }
+.lab-port-traffic { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:11px; }
+.lab-port-traffic>div { padding:9px; border-left:2px solid #438dce; background:#111b24; }
+.lab-port-traffic>div+div { border-left-color:#52c993; }
+.lab-port-traffic span,.lab-port-traffic strong,.lab-port-traffic small { display:block; }
+.lab-port-traffic span { color:#718291; font:9px ui-monospace,monospace; }
+.lab-port-traffic strong { margin:3px 0; color:#e4eef6; font:600 12px ui-monospace,monospace; }
+.lab-port-traffic small { color:#7f909e; font:8px ui-monospace,monospace; white-space:nowrap; }
 
 /* Mock-first handoff: rack appears immediately, live state arrives atomically. */
 .lab-device-node.loading .lab-device-port-summary { color:#6fa4ee; animation:lab-sync-pulse 1.5s ease-in-out infinite; }

@@ -11,6 +11,11 @@ export interface PortState {
 	alias?: string
 	/** Configured speed, e.g. "10G" / "100G". */
 	speed?: string
+	lanes?: string
+	mtu?: string
+	fec?: string
+	type?: string
+	counters?: { rxOk?: string; rxBps?: string; rxPps?: string; rxErr?: string; rxDrop?: string; txOk?: string; txBps?: string; txPps?: string; txErr?: string; txDrop?: string }
 	/** Oper status: "up" | "down" (absent when unknown). */
 	oper?: string
 	/** Admin status: "up" | "down". */

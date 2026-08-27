@@ -96,6 +96,10 @@ export interface InterfaceStatusRow {
 	name: string
 	alias?: string
 	speed?: string
+	lanes?: string
+	mtu?: string
+	fec?: string
+	type?: string
 	oper?: string
 	admin?: string
 	vlan?: string
@@ -123,6 +127,10 @@ export function parseInterfaceStatus(text: string): InterfaceStatusRow[] {
 			name,
 			alias: find(row, 'Alias', 'alias'),
 			speed: find(row, 'Speed', 'speed'),
+			lanes: find(row, 'Lanes', 'lanes'),
+			mtu: find(row, 'MTU', 'Mtu', 'mtu'),
+			fec: find(row, 'FEC', 'Fec', 'fec'),
+			type: find(row, 'Type', 'type'),
 			oper: find(row, 'Oper', 'oper'),
 			admin: find(row, 'Admin', 'admin'),
 			vlan: find(row, 'Vlan', 'VLAN', 'Mode', 'mode'),
@@ -141,6 +149,28 @@ export function parseIpInterfaces(text: string): Map<string, string[]> {
 		const name = match[1] ?? ''
 		const address = match[2] ?? ''
 		if (name.length > 0 && address.length > 0) result.set(name, [...(result.get(name) ?? []), address])
+	}
+	return result
+}
+
+export interface InterfaceCounters { rxOk?: string; rxBps?: string; rxPps?: string; rxErr?: string; rxDrop?: string; txOk?: string; txBps?: string; txPps?: string; txErr?: string; txDrop?: string }
+
+export function parseInterfaceCounters(text: string): Map<string, InterfaceCounters> {
+	const result = new Map<string, InterfaceCounters>()
+	for (const row of parseFixedWidthTable(text)) {
+		const name = row.IFACE ?? row.Interface ?? ''
+		if (!/^Ethernet\d+$/.test(name)) continue
+		result.set(name, { rxOk: row.RX_OK, rxBps: row.RX_BPS, rxPps: row.RX_PPS, rxErr: row.RX_ERR, rxDrop: row.RX_DRP, txOk: row.TX_OK, txBps: row.TX_BPS, txPps: row.TX_PPS, txErr: row.TX_ERR, txDrop: row.TX_DRP })
+	}
+	return result
+}
+
+export function parseInterfaceDescriptions(text: string): Map<string, string> {
+	const result = new Map<string, string>()
+	for (const row of parseFixedWidthTable(text)) {
+		const name = row.Interface ?? ''
+		const description = row.Description ?? ''
+		if (/^Ethernet\d+$/.test(name) && description.length > 0) result.set(name, description)
 	}
 	return result
 }

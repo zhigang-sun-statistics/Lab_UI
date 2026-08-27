@@ -5,7 +5,7 @@
  * confirmed by LLDP survive as dashed 'static' edges.
  */
 import type { CollectOutput } from './collector.ts'
-import { parseInterfaceStatus, parseIpInterfaces, parseLldpTable } from './parser.ts'
+import { parseInterfaceCounters, parseInterfaceDescriptions, parseInterfaceStatus, parseIpInterfaces, parseLldpTable } from './parser.ts'
 import type { LabConfig } from './config.ts'
 import type { LinkState, SwitchState } from './types.ts'
 
@@ -41,9 +41,11 @@ export function buildTopology(lab: LabConfig, collected: CollectOutput): { switc
 			const ports = parseInterfaceStatus(probe.interfaces.out + '\n' + probe.interfaces.err)
 			const lldp = parseLldpTable(probe.lldp.out + '\n' + probe.lldp.err)
 			const ipAddresses = parseIpInterfaces(probe.ipInterfaces.out + '\n' + probe.ipInterfaces.err)
+			const counters = parseInterfaceCounters(probe.counters.out + '\n' + probe.counters.err)
+			const descriptions = parseInterfaceDescriptions(probe.descriptions.out + '\n' + probe.descriptions.err)
 			const peers = new Map<string, { device: string; port: string }>()
 			for (const row of lldp) peers.set(row.localPort, { device: row.peer, port: row.peerPort })
-			state.ports = ports.map((port) => ({ ...port, ipAddresses: ipAddresses.get(port.name), lldpPeer: peers.get(port.name) }))
+			state.ports = ports.map((port) => ({ ...port, description: descriptions.get(port.name) ?? port.description, counters: counters.get(port.name), ipAddresses: ipAddresses.get(port.name), lldpPeer: peers.get(port.name) }))
 			for (const [localPort, peer] of peers) {
 				const peerSwId = byNameOrId.get(peer.device)
 				if (peerSwId === undefined || peerSwId === sw.id) continue
