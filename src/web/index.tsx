@@ -8,19 +8,19 @@ import './web.css'
 const MiniRack = (): JSX.Element => <div className="web-rack"><div className="web-rack-head"><i /> SW1 · 10.13.33.164 <span>ONLINE</span></div><div className="web-rack-face"><b>SYS</b><div className="web-rack-ports">{Array.from({ length: 32 }, (_, port) => <i key={port} className={port === 0 || port === 6 || port === 22 || port === 28 ? 'active' : ''}><em>{port}</em></i>)}</div></div><div className="web-rack-link"><span>Ethernet28</span><strong>LLDP</strong><span>SW3 · Ethernet6</span></div></div>
 
 function Login({ onLogin }: { onLogin: (name: string) => void }): JSX.Element {
-  const [name, setName] = useState('szg')
-  const [password, setPassword] = useState('szg')
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const login = async (): Promise<void> => {
     setBusy(true); setError('')
     try {
       const response = await fetch('/api/lab/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: name, password }) })
-      if (!response.ok) { setError('账号或密码错误'); return }
+      if (!response.ok) { const result = await response.json().catch(() => ({ error: '账号或密码错误' })) as { error?: string }; setError(result.error ?? '账号或密码错误'); return }
       onLogin(name)
     } catch { setError('无法连接设备管理服务，请检查服务是否启动') } finally { setBusy(false) }
   }
-  return <main className="web-login"><StyleInjector /><div className="web-login-grid"><section className="web-login-visual"><div className="web-brand"><span className="web-brand-mark">L</span><div><strong>SONiC LAB</strong><small>NETWORK OPERATIONS</small></div></div><div className="web-visual-copy"><div className="web-kicker">PHYSICAL CONTROL SURFACE</div><h1>看见每一条链路，<br />掌握每一个端口。</h1><p>面向 Centec SONiC 实验室的交换机状态与链路控制台。</p></div><MiniRack /><div className="web-visual-foot"><span><i className="ok" />4 台设备</span><span><i className="ok" />128 个端口</span><span><i />局域网模式</span></div></section><section className="web-login-panel"><div className="web-login-card"><div className="web-kicker">AUTHORIZED ACCESS</div><h2>进入设备管理</h2><p>使用实验室凭据登录控制台。</p><label><span>账号</span><input autoFocus autoComplete="username" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void login() }} /></label><label><span>密码</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void login() }} /></label>{error.length > 0 && <div className="web-login-error">{error}</div>}<button className="web-login-submit" disabled={busy} onClick={() => { void login() }}><span>{busy ? '正在连接…' : '进入控制台'}</span><b>→</b></button><div className="web-login-note"><span>测试账号</span><code>szg / szg</code></div></div></section></div></main>
+  return <main className="web-login"><StyleInjector /><div className="web-login-grid"><section className="web-login-visual"><div className="web-brand"><span className="web-brand-mark">L</span><div><strong>SONiC LAB</strong><small>NETWORK OPERATIONS</small></div></div><div className="web-visual-copy"><div className="web-kicker">PHYSICAL CONTROL SURFACE</div><h1>看见每一条链路，<br />掌握每一个端口。</h1><p>面向 Centec SONiC 实验室的交换机状态与链路控制台。</p></div><MiniRack /><div className="web-visual-foot"><span><i className="ok" />4 台设备</span><span><i className="ok" />128 个端口</span><span><i />局域网模式</span></div></section><section className="web-login-panel"><div className="web-login-card"><div className="web-kicker">AUTHORIZED ACCESS</div><h2>进入设备管理</h2><p>使用 ZNSL 跳板机账号登录控制台。</p><label><span>账号</span><input autoFocus list="lab-users" autoComplete="username" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void login() }} /><datalist id="lab-users">{['wsy','lfx','fjj','yyh','zyh','szg','dj','fdk','ychan','dcc','sxx'].map((user) => <option key={user} value={user} />)}</datalist></label><label><span>密码</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void login() }} /></label>{error.length > 0 && <div className="web-login-error">{error}</div>}<button className="web-login-submit" disabled={busy} onClick={() => { void login() }}><span>{busy ? '正在连接…' : '进入控制台'}</span><b>→</b></button><div className="web-login-note"><span>ZNSL · 192.168.210.244</span><code>初始密码 = 用户名</code></div></div></section></div></main>
 }
 
 function WebApp(): JSX.Element {

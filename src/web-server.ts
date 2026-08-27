@@ -5,17 +5,18 @@ import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import { loadLabConfig } from './config.ts'
-import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription } from './collector.ts'
+import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription, verifyJumpHost } from './collector.ts'
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
 
 const HOST = process.env.LAB_WEB_HOST ?? '0.0.0.0'
 const PORT = Number(process.env.LAB_WEB_PORT ?? 8889)
-const USERNAME = process.env.LAB_WEB_USERNAME ?? 'szg'
-const PASSWORD = process.env.LAB_WEB_PASSWORD ?? 'szg'
 const ROOT = dirname(fileURLToPath(import.meta.url))
-const sessions = new Map<string, number>()
+const ALLOWED_USERS = new Set(['wsy', 'lfx', 'fjj', 'yyh', 'zyh', 'szg', 'dj', 'fdk', 'ychan', 'dcc', 'sxx'])
+const JUMP_HOST = '192.168.210.244'
+interface WebSession { at: number; username: string; password: string }
+const sessions = new Map<string, WebSession>()
 const TTL = 8 * 60 * 60 * 1000
 let collectionCache: { at: number; value: Awaited<ReturnType<typeof collect>> } | undefined
 let collectionInflight: ReturnType<typeof collect> | undefined
@@ -44,32 +45,41 @@ const cookie = (req: IncomingMessage, name: string): string | undefined => {
   return match?.slice(name.length + 1)
 }
 
-const authenticated = (req: IncomingMessage): boolean => {
+const sessionOf = (req: IncomingMessage): WebSession | undefined => {
   const token = cookie(req, 'lab_session')
-  if (token === undefined) return false
-  const at = sessions.get(token)
-  if (at === undefined) return false
-  if (Date.now() - at > TTL) { sessions.delete(token); return false }
-  sessions.set(token, Date.now())
-  return true
+  if (token === undefined) return undefined
+  const session = sessions.get(token)
+  if (session === undefined) return undefined
+  if (Date.now() - session.at > TTL) { sessions.delete(token); return undefined }
+  session.at = Date.now()
+  return session
+}
+
+const labForSession = async (session: WebSession): Promise<Awaited<ReturnType<typeof loadLabConfig>>> => {
+  const lab = await loadLabConfig()
+  return { ...lab, jumphost: { ...lab.jumphost, host: JUMP_HOST, username: session.username, password: session.password } }
 }
 
 const api = async (req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> => {
   if (path === '/api/lab/login' && req.method === 'POST') {
     const input = await body(req)
-    if (input.username !== USERNAME || input.password !== PASSWORD) { json(res, 401, { error: '账号或密码错误' }); return true }
+    const username = typeof input.username === 'string' ? input.username.trim().toLowerCase() : ''
+    const password = typeof input.password === 'string' ? input.password : ''
+    if (!ALLOWED_USERS.has(username) || password.length === 0) { json(res, 401, { error: '账号或密码错误' }); return true }
+    try { await verifyJumpHost(JUMP_HOST, 22, username, password) } catch { json(res, 401, { error: '跳板机认证失败，请检查账号密码' }); return true }
     const token = randomBytes(32).toString('hex')
-    sessions.set(token, Date.now())
-    json(res, 200, { username: USERNAME }, { 'set-cookie': 'lab_session=' + token + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800' })
+    sessions.set(token, { at: Date.now(), username, password })
+    json(res, 200, { username, network: 'ZNSL', jumpHost: JUMP_HOST }, { 'set-cookie': 'lab_session=' + token + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800' })
     return true
   }
   if (path === '/api/lab/logout' && req.method === 'POST') {
     const token = cookie(req, 'lab_session'); if (token !== undefined) sessions.delete(token)
     json(res, 200, { ok: true }, { 'set-cookie': 'lab_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' }); return true
   }
-  if (path === '/api/lab/session' && req.method === 'GET') { json(res, authenticated(req) ? 200 : 401, authenticated(req) ? { username: USERNAME } : { error: '未登录' }); return true }
-  if (!authenticated(req)) { json(res, 401, { error: '未登录' }); return true }
-  const lab = await loadLabConfig()
+  if (path === '/api/lab/session' && req.method === 'GET') { const session = sessionOf(req); json(res, session === undefined ? 401 : 200, session === undefined ? { error: '未登录' } : { username: session.username, network: 'ZNSL', jumpHost: JUMP_HOST }); return true }
+  const session = sessionOf(req)
+  if (session === undefined) { json(res, 401, { error: '未登录' }); return true }
+  const lab = await labForSession(session)
   if (path === '/api/lab/experiment' && req.method === 'GET') { json(res, 200, await loadExperimentDefinition()); return true }
   if (path === '/api/lab/topology' && req.method === 'GET') {
     const started = Date.now()
@@ -111,10 +121,11 @@ const server = createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true })
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', 'http://localhost')
-  if (url.pathname !== '/api/lab/ssh' || !authenticated(req)) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return }
+  const session = sessionOf(req)
+  if (url.pathname !== '/api/lab/ssh' || session === undefined) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return }
   wss.handleUpgrade(req, socket, head, (ws) => {
     const switchId = url.searchParams.get('switch') ?? ''
-    void loadLabConfig().then((lab) => openInteractiveShell(lab, switchId, 120, 34, (data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() })).then((shell) => {
+    void labForSession(session).then((lab) => openInteractiveShell(lab, switchId, 120, 34, (data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() })).then((shell) => {
       ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') shell.write(message.data); if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
       ws.on('close', () => shell.close())
     }).catch((error) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })

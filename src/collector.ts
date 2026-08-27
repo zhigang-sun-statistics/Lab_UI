@@ -71,6 +71,12 @@ const connectClient = (options: ConnectConfig): Promise<Client> =>
 		client.connect(options)
 	})
 
+/** Validate one user's credentials against a jump host without running commands. */
+export async function verifyJumpHost(host: string, port: number, username: string, password: string): Promise<void> {
+	const client = await connectClient({ host, port, username, password, readyTimeout: 8000 })
+	client.end()
+}
+
 /** The only jumphost commands this plugin may run (read-only lock state). */
 export const JUMP_CMD = {
 	sws: 'sws',
