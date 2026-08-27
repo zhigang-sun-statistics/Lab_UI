@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LabView } from '../client/LabView.tsx'
 import { StyleInjector } from '../client/StyleInjector.tsx'
-import { SshTerminal } from '../ssh/SshTerminal.tsx'
+import { SshTerminal, type SshConnectionState } from '../ssh/SshTerminal.tsx'
 import './web.css'
 
 const MiniRack = (): JSX.Element => <div className="web-rack"><div className="web-rack-head"><i /> SW1 · 10.13.33.164 <span>ONLINE</span></div><div className="web-rack-face"><b>SYS</b><div className="web-rack-ports">{Array.from({ length: 32 }, (_, port) => <i key={port} className={port === 0 || port === 6 || port === 22 || port === 28 ? 'active' : ''}><em>{port}</em></i>)}</div></div><div className="web-rack-link"><span>Ethernet28</span><strong>LLDP</strong><span>SW3 · Ethernet6</span></div></div>
@@ -28,13 +28,15 @@ function WebApp(): JSX.Element {
   const [checking, setChecking] = useState(true)
   const [sshTabs, setSshTabs] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState('topology')
+  const [sshStatus, setSshStatus] = useState<Record<string, SshConnectionState>>({})
+  const updateSshStatus = useCallback((switchId: string, state: SshConnectionState): void => { setSshStatus((current) => ({ ...current, [switchId]: state })) }, [])
   useEffect(() => { void fetch('/api/lab/session').then(async (response) => { if (response.ok) { const session = await response.json() as { username: string }; setUser(session.username) } }).finally(() => setChecking(false)) }, [])
   if (checking) return <div className="web-boot"><span className="web-brand-mark">L</span><p>正在连接设备管理服务…</p></div>
   if (user === null) return <Login onLogin={setUser} />
-  const logout = async (): Promise<void> => { setSshTabs([]); setActiveTab('topology'); await fetch('/api/lab/logout', { method: 'POST' }); setUser(null) }
+  const logout = async (): Promise<void> => { setSshTabs([]); setSshStatus({}); setActiveTab('topology'); await fetch('/api/lab/logout', { method: 'POST' }); setUser(null) }
   const openSsh = (switchId: string): void => { setSshTabs((tabs) => tabs.includes(switchId) ? tabs : [...tabs, switchId]); setActiveTab(switchId) }
-  const closeSsh = (switchId: string): void => { setSshTabs((tabs) => tabs.filter((id) => id !== switchId)); if (activeTab === switchId) setActiveTab('topology') }
-  return <div className="web-shell"><StyleInjector /><header className="web-header"><div className="web-header-brand"><span className="web-brand-mark small">L</span><div><span className="web-kicker">SONiC LAB / DEVICE MANAGEMENT</span><h1>设备管理</h1></div></div><div className="web-user"><span className="web-live"><i />服务在线</span><code>{user}</code><button onClick={() => { void logout() }}>退出</button></div></header><nav className="web-tabs"><button className={activeTab === 'topology' ? 'active' : ''} onClick={() => setActiveTab('topology')}><span className="web-tab-icon">⌘</span>物理拓扑</button>{sshTabs.map((switchId) => <button key={switchId} className={activeTab === switchId ? 'active terminal' : 'terminal'} onClick={() => setActiveTab(switchId)}><span className="web-tab-icon">›_</span>{switchId.toUpperCase()} SSH <i onClick={(event) => { event.stopPropagation(); closeSsh(switchId) }} title="关闭并断开 SSH">×</i></button>)}</nav><main className="web-workspace"><section className={activeTab === 'topology' ? 'web-panel active' : 'web-panel'}><LabView visible={activeTab === 'topology'} showExperiment={false} onOpenSsh={openSsh} /></section>{sshTabs.map((switchId) => <section key={switchId} className={activeTab === switchId ? 'web-panel active' : 'web-panel'}><SshTerminal switchId={switchId} /></section>)}</main></div>
+  const closeSsh = (switchId: string): void => { setSshTabs((tabs) => tabs.filter((id) => id !== switchId)); setSshStatus((current) => { const next = { ...current }; delete next[switchId]; return next }); if (activeTab === switchId) setActiveTab('topology') }
+  return <div className="web-shell"><StyleInjector /><header className="web-header"><div className="web-header-brand"><span className="web-brand-mark small">L</span><div><span className="web-kicker">SONiC LAB / DEVICE MANAGEMENT</span><h1>设备管理</h1></div></div><div className="web-user"><span className="web-live"><i />服务在线</span><code>{user}</code><button onClick={() => { void logout() }}>退出</button></div></header><nav className="web-tabs"><button className={activeTab === 'topology' ? 'active' : ''} onClick={() => setActiveTab('topology')}><span className="web-tab-icon">⌘</span>物理拓扑</button>{sshTabs.map((switchId) => <button key={switchId} className={activeTab === switchId ? 'active terminal' : 'terminal'} onClick={() => setActiveTab(switchId)}><span className="web-tab-icon">›_</span>{switchId.toUpperCase()} SSH <span className={'web-tab-status ' + (sshStatus[switchId] ?? 'connecting')} title={sshStatus[switchId] === 'connected' ? '已连接' : sshStatus[switchId] === 'error' ? '连接错误' : sshStatus[switchId] === 'closed' ? '已断开' : '连接中'} /><i onClick={(event) => { event.stopPropagation(); closeSsh(switchId) }} title="关闭并断开 SSH">×</i></button>)}</nav><main className="web-workspace"><section className={activeTab === 'topology' ? 'web-panel active' : 'web-panel'}><LabView visible={activeTab === 'topology'} showExperiment={false} onOpenSsh={openSsh} /></section>{sshTabs.map((switchId) => <section key={switchId} className={activeTab === switchId ? 'web-panel active' : 'web-panel'}><SshTerminal switchId={switchId} onConnectionChange={(state) => updateSshStatus(switchId, state)} /></section>)}</main></div>
 }
 
 const root = document.getElementById('root')
