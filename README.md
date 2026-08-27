@@ -77,6 +77,10 @@ A custom absolute file can be supplied through plugin config
 optional static physical cables. Static links confirmed by LLDP become
 `both`; unconfirmed links remain dashed.
 
+## Standalone LAN Web
+
+The standalone Web console listens on 0.0.0.0:8889 by default. Start it with npm run build followed by npm run web:serve. Then open http://<server-lan-ip>:8889. Override with LAB_WEB_PORT when needed. The first LAN version uses the default test account szg/szg.
+
 ## Development
 
 ```sh

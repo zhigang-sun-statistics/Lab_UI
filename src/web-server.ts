@@ -10,7 +10,7 @@ import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
 
 const HOST = process.env.LAB_WEB_HOST ?? '0.0.0.0'
-const PORT = Number(process.env.LAB_WEB_PORT ?? 8787)
+const PORT = Number(process.env.LAB_WEB_PORT ?? 8889)
 const USERNAME = process.env.LAB_WEB_USERNAME ?? 'szg'
 const PASSWORD = process.env.LAB_WEB_PASSWORD ?? 'szg'
 const ROOT = dirname(fileURLToPath(import.meta.url))
