@@ -99,6 +99,7 @@ export interface InterfaceStatusRow {
 	oper?: string
 	admin?: string
 	vlan?: string
+	description?: string
 }
 
 const INTERFACE_KEY_RE = /^(?:Ethernet[\d_]+|Eth\d+|Management\d+|Vlan\d+|PortChannel\d+|Loopback\d+)/i
@@ -125,9 +126,23 @@ export function parseInterfaceStatus(text: string): InterfaceStatusRow[] {
 			oper: find(row, 'Oper', 'oper'),
 			admin: find(row, 'Admin', 'admin'),
 			vlan: find(row, 'Vlan', 'VLAN', 'Mode', 'mode'),
+			description: find(row, 'Description', 'description', 'Desc'),
 		})
 	}
 	return rows
+}
+
+/** Parse `show ip interfaces`; tolerant of vendor table variants. */
+export function parseIpInterfaces(text: string): Map<string, string[]> {
+	const result = new Map<string, string[]>()
+	for (const line of stripAnsi(text).split(/\r?\n/)) {
+		const match = line.match(/\b(Ethernet\d+)\b.*?\b((?:\d{1,3}\.){3}\d{1,3}\/\d{1,3}|[0-9a-f:]+\/\d{1,3})\b/iu)
+		if (match === null) continue
+		const name = match[1] ?? ''
+		const address = match[2] ?? ''
+		if (name.length > 0 && address.length > 0) result.set(name, [...(result.get(name) ?? []), address])
+	}
+	return result
 }
 
 export interface LldpRow {

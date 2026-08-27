@@ -17,6 +17,10 @@ export interface PortState {
 	admin?: string
 	/** VLAN / routed marker from the status table. */
 	vlan?: string
+	/** IPv4/IPv6 addresses reported for this interface. */
+	ipAddresses?: string[]
+	/** Interface description, when reported by the device. */
+	description?: string
 	/** LLDP peer discovered on this port (device id + port id). */
 	lldpPeer?: { device: string; port: string }
 }

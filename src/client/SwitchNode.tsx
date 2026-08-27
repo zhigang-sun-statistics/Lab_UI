@@ -1,7 +1,7 @@
 /**
  * Rack-style 32-port switch front panel. The physical face mirrors the lab
  * hardware: MGMT over ETH on the left, then two rows of sixteen cages on the
- * right (odd ports 1..31 above, even ports 0..30 below). Every cage owns a
+ * right (even ports 0..30 above, odd ports 1..31 below). Every cage owns a
  * top target handle and bottom source handle so vertically stacked devices
  * can draw cables from the exact physical port.
  */
@@ -27,6 +27,7 @@ export interface SwitchNodeData extends Record<string, unknown> {
 	selected: boolean
 	loading: boolean
 	ports: FrontPort[]
+	onPortClick?: (port: FrontPort) => void
 }
 
 const operClass = (port: FrontPort): string => {
@@ -35,7 +36,7 @@ const operClass = (port: FrontPort): string => {
 	return 'down'
 }
 
-function FacePort({ port, row }: { port: FrontPort; row: 'top' | 'bottom' }): JSX.Element {
+function FacePort({ port, row, onClick }: { port: FrontPort; row: 'top' | 'bottom'; onClick?: (port: FrontPort) => void }): JSX.Element {
 	const linked = port.peerLabel !== undefined && port.peerLabel.length > 0
 	const title = [
 		port.displayName,
@@ -44,7 +45,7 @@ function FacePort({ port, row }: { port: FrontPort; row: 'top' | 'bottom' }): JS
 		port.peerLabel !== undefined ? '邻居 ' + port.peerLabel : undefined,
 	].filter(Boolean).join(' · ')
 	return (
-		<div className={'lab-face-port ' + row + ' ' + operClass(port) + (linked ? ' linked' : '')} title={title}>
+		<div className={'lab-face-port ' + row + ' ' + operClass(port) + (linked ? ' linked' : '')} title={title} onClick={() => onClick?.(port)} role={onClick === undefined ? undefined : 'button'} tabIndex={onClick === undefined ? undefined : 0}>
 			{row === 'top' ? <span className="lab-face-port-no">{port.slot}</span> : null}
 			<div className="lab-face-cage">
 				<span className="lab-face-cage-core" />
@@ -59,8 +60,8 @@ function FacePort({ port, row }: { port: FrontPort; row: 'top' | 'bottom' }): JS
 
 export function SwitchNode({ data }: NodeProps): JSX.Element {
 	const sw = data as SwitchNodeData
-	const oddPorts = sw.ports.filter((port) => port.slot % 2 === 1)
 	const evenPorts = sw.ports.filter((port) => port.slot % 2 === 0)
+	const oddPorts = sw.ports.filter((port) => port.slot % 2 === 1)
 	return (
 		<div className={'lab-device-node' + (sw.selected ? ' selected' : '') + (sw.reachable ? '' : ' unreachable') + (sw.loading ? ' loading' : '')}>
 			<div className="lab-device-caption">
@@ -78,8 +79,8 @@ export function SwitchNode({ data }: NodeProps): JSX.Element {
 				</div>
 				<div className="lab-chassis-vent top" />
 				<div className="lab-port-bank">
-					<div className="lab-port-row top">{oddPorts.map((port) => <FacePort key={port.slot} port={port} row="top" />)}</div>
-					<div className="lab-port-row bottom">{evenPorts.map((port) => <FacePort key={port.slot} port={port} row="bottom" />)}</div>
+					<div className="lab-port-row top">{evenPorts.map((port) => <FacePort key={port.slot} port={port} row="top" onClick={sw.onPortClick} />)}</div>
+					<div className="lab-port-row bottom">{oddPorts.map((port) => <FacePort key={port.slot} port={port} row="bottom" onClick={sw.onPortClick} />)}</div>
 				</div>
 				<div className="lab-chassis-vent bottom" />
 			</div>

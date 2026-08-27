@@ -48,13 +48,15 @@
     "lab.json",
     "experiment.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "web"
   ],
   "scripts": {
     "prebuild": "node scripts/inline-css.mjs",
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "watch": "tsdown --watch"
+    "watch": "tsdown --watch",
+    "web:serve": "node lib/web-server.js"
   },
   "dependencies": {
     "ssh2": "^1.17.0",

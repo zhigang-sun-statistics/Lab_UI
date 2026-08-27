@@ -100,6 +100,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 	const [showLog, setShowLog] = useState(false)
 	const [error, setError] = useState<string>()
 	const [selected, setSelected] = useState<string>()
+	const [selectedPort, setSelectedPort] = useState<string>()
 	const [busy, setBusy] = useState(false)
 	const alive = useRef(true)
 
@@ -164,6 +165,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 				selected: selected === sw.id,
 				loading: !hydrated,
 				ports: frontPortsOf(sw, linkedBySw.get(sw.id)),
+				onPortClick: (port) => { setSelected(sw.id); setSelectedPort(port.port) },
 			}
 			return {
 				id: sw.id,
@@ -203,10 +205,11 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 	}, [topology, selected, hydrated])
 
 	const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => { setSelected(node.id) }, [])
-	const closeDetail = useCallback(() => { setSelected(undefined) }, [])
+	const closeDetail = useCallback(() => { setSelected(undefined); setSelectedPort(undefined) }, [])
 
 	const selectedSw = topology?.switches.find((sw) => sw.id === selected)
 	const selectedLinks = topology?.links.filter((l) => l.a.sw === selected || l.b.sw === selected) ?? []
+	const selectedPortState = selectedSw?.ports.find((port) => port.name === selectedPort)
 	const unreachable = topology?.switches.filter((sw) => !sw.reachable) ?? []
 
 	return (
@@ -261,6 +264,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 						<p><span className="kv">IP</span><span className="lab-mono">{selectedSw.ip}</span></p>
 						<p><span className="kv">状态</span>{hydrated ? (selectedSw.reachable ? '可达' : <span className="lab-error">不可达: {selectedSw.error}</span>) : '正在采集…'}</p>
 						{selectedSw.version !== undefined && <p className="lab-mono" style={{ fontSize: 11 }}>{selectedSw.version}</p>}
+						{selectedPortState !== undefined && <div className="lab-port-focus"><strong>{selectedPortState.name}</strong><p><span className="kv">描述</span>{selectedPortState.description ?? '—'}</p><p><span className="kv">IP</span>{selectedPortState.ipAddresses?.join(', ') ?? '—'}</p><p><span className="kv">Admin / Oper</span>{selectedPortState.admin ?? '—'} / {selectedPortState.oper ?? '—'}</p></div>}
 						<div className="lab-swdetail-links">
 							{selectedLinks.map((link) => (
 								<div key={link.id} className="lab-linkrow">

@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown'
 
 // Host 半边：Node 库，输出 lib/，供 cordis.yml 插件行按包名加载。
 const lib = {
-  entry: { index: 'src/index.ts', invariant: 'src/invariant.ts' },
+  entry: { index: 'src/index.ts', invariant: 'src/invariant.ts', 'web-server': 'src/web-server.ts' },
   outDir: 'lib',
   format: 'esm' as const,
   platform: 'node' as const,
@@ -44,4 +44,19 @@ const client = {
 }
 
 // 数组形式：先构建 Node 库（clean），再产出 client bundle（clean 关闭，避免互相清掉）。
-export default defineConfig([lib, client])
+const web = {
+  name: 'dsh-lab-controller/web',
+  entry: { web: 'src/web/index.tsx' },
+  outDir: 'lib',
+  format: 'esm' as const,
+  platform: 'browser' as const,
+  target: 'es2020',
+  dts: false,
+  clean: false,
+  sourcemap: true,
+  noExternal: /.*/,
+  define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') },
+  outputOptions: { entryFileNames: 'web.js' },
+}
+
+export default defineConfig([lib, client, web])

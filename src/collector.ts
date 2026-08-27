@@ -81,12 +81,14 @@ export const SWITCH_CMD = {
 	interfaces: 'show interfaces status',
 	lldp: 'show lldp table',
 	version: 'show version',
+	ipInterfaces: 'show ip interfaces',
 } as const
 
 export interface SwitchProbe {
 	interfaces: ExecResult
 	lldp: ExecResult
 	version: ExecResult
+	ipInterfaces: ExecResult
 }
 
 export interface CollectOutput {
@@ -136,12 +138,13 @@ export async function collect(lab: LabConfig, timeoutMs: number): Promise<Collec
 				})
 			})
 			try {
-				const [interfaces, lldp, version] = await Promise.all([
+				const [interfaces, lldp, version, ipInterfaces] = await Promise.all([
 					execOnClient(channel, SWITCH_CMD.interfaces, timeoutMs),
 					execOnClient(channel, SWITCH_CMD.lldp, timeoutMs),
 					execOnClient(channel, SWITCH_CMD.version, timeoutMs),
+					execOnClient(channel, SWITCH_CMD.ipInterfaces, timeoutMs),
 				])
-				switches.set(sw.id, { probe: { interfaces, lldp, version } })
+				switches.set(sw.id, { probe: { interfaces, lldp, version, ipInterfaces } })
 			} finally {
 				channel.end()
 			}
