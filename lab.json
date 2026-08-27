@@ -1,0 +1,21 @@
+{
+  "_comment": "实验室静态拓扑。links 数组是人工登记的物理连线（LLDP 不可见或未开启时兜底）；实时连线由 LLDP 自动发现并在 UI 中以高亮合并。positions 为 React Flow 画布初始坐标。",
+  "jumphost": {
+    "host": "192.168.210.244",
+    "username": "test",
+    "password": "test",
+    "port": 22
+  },
+  "switch": {
+    "username": "admin",
+    "password": "admin",
+    "port": 22
+  },
+  "switches": [
+    { "id": "sw1", "name": "sw1", "ip": "10.13.33.164", "group": "A", "model": "Centec E582", "position": { "x": 40, "y": 60 } },
+    { "id": "sw2", "name": "sw2", "ip": "10.13.33.165", "group": "A", "model": "Centec E582", "position": { "x": 480, "y": 60 } },
+    { "id": "sw3", "name": "sw3", "ip": "10.13.33.166", "group": "B", "model": "Centec E582", "position": { "x": 40, "y": 420 } },
+    { "id": "sw4", "name": "sw4", "ip": "10.13.33.167", "group": "B", "model": "Centec E582", "position": { "x": 480, "y": 420 } }
+  ],
+  "links": []
+}

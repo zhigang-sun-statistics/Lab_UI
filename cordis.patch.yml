@@ -1,0 +1,16 @@
+# dsh-lab-controller bundle patch
+#
+# Mounted through the official CLI:
+#
+#   dsh plugin --profile <name> add dsh-lab-controller
+#
+# which reconciles dsh.profile.bundles against installed packages and appends
+# this bundle. The row below is the single insert of the plugin.
+#
+# Config keys (optional, via the inserted row or the profile patch layer):
+#   config.labFile     - absolute path to an alternative lab.json
+#   config.cacheTtlMs  - topology cache TTL in ms (default 30000)
+#   config.timeoutMs   - per-command SSH timeout in ms (default 15000)
+- insert:
+    - id: lab-controller
+      name: 'dsh-lab-controller'

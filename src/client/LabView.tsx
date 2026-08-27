@@ -1,0 +1,303 @@
+/**
+ * LabView: the lab controller tab body. Three bands - lock toolbar,
+ * topology canvas + switch detail panel, status footer. Polls topology
+ * and lock state while visible; every fetch is a read-only GET.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type NodeMouseHandler } from '@xyflow/react'
+import { fetchExperiment, fetchLockLog, fetchLocks, fetchTopology } from './api.ts'
+import { CableEdge } from './CableEdge.tsx'
+import { ExperimentView } from './ExperimentView.tsx'
+import { StyleInjector } from './StyleInjector.tsx'
+import { SwitchNode, type FrontPort, type SwitchNodeData } from './SwitchNode.tsx'
+import type { ExperimentResponse, LinkState, LockLogResponse, LocksResponse, SwitchState, TopologyResponse } from '../types.ts'
+
+const REFRESH_MS = 45_000
+const EDGE_TYPES = { cable: CableEdge }
+
+const mockPorts = () => Array.from({ length: 32 }, (_, index) => ({
+	name: 'Ethernet' + String(index),
+	alias: 'eth-0-' + String(index + 1),
+	admin: 'up',
+	oper: 'down',
+	speed: '—',
+}))
+
+const MOCK_TOPOLOGY: TopologyResponse = {
+	fetchedAt: 0,
+	durationMs: 0,
+	cached: false,
+	switches: [
+		{ id: 'sw1', name: 'sw1', ip: '10.13.33.164', group: 'A', reachable: true, ports: mockPorts() },
+		{ id: 'sw2', name: 'sw2', ip: '10.13.33.165', group: 'A', reachable: true, ports: mockPorts() },
+		{ id: 'sw3', name: 'sw3', ip: '10.13.33.166', group: 'B', reachable: true, ports: mockPorts() },
+		{ id: 'sw4', name: 'sw4', ip: '10.13.33.167', group: 'B', reachable: true, ports: mockPorts() },
+	],
+	links: [],
+}
+
+const timeLabel = (epoch: number): string => new Date(epoch).toLocaleTimeString()
+
+const edgeStyle = (source: LinkState['source']): { stroke: string; strokeDasharray?: string; strokeWidth: number } => {
+	if (source === 'static') return { stroke: '#788294', strokeDasharray: '7 5', strokeWidth: 1.5 }
+	if (source === 'both') return { stroke: '#32c878', strokeWidth: 2.2 }
+	return { stroke: '#4d96ff', strokeWidth: 2 }
+}
+
+const endpointLabel = (swId: string, port: string): string => {
+	const swNo = swId.match(/(\d+)/)?.[1] ?? swId.toUpperCase()
+	const ethNo = port.match(/^Ethernet(.+)$/i)?.[1] ?? port.replace(/^eth/i, '')
+	return 'SW' + swNo + 'Eth' + ethNo
+}
+
+const physicalSlotOf = (alias: string | undefined, name: string, fallbackIndex: number): number | undefined => {
+	const aliasMatch = alias?.match(/eth-\d+-(\d+)/i)
+	if (aliasMatch?.[1] !== undefined) return Number(aliasMatch[1]) - 1
+	const nameMatch = name.match(/^Ethernet(\d+)/i)
+	if (nameMatch?.[1] !== undefined) return Number(nameMatch[1])
+	const fallback = fallbackIndex
+	return fallback >= 0 && fallback <= 31 ? fallback : undefined
+}
+
+const frontPortsOf = (
+	sw: SwitchState,
+	linked: Map<string, { peerLabel?: string }> | undefined,
+): FrontPort[] => {
+	const cages = new Map<number, typeof sw.ports>()
+	sw.ports.forEach((port, index) => {
+		const slot = physicalSlotOf(port.alias, port.name, index)
+		if (slot === undefined || slot < 0 || slot > 31) return
+		const entries = cages.get(slot) ?? []
+		entries.push(port)
+		cages.set(slot, entries)
+	})
+	return Array.from({ length: 32 }, (_, index): FrontPort => {
+		const slot = index
+		const entries = cages.get(slot) ?? []
+		const linkedPort = entries.find((port) => linked?.has(port.name) === true)
+		const active = linkedPort ?? entries.find((port) => port.oper === 'up') ?? entries[0]
+		const peer = active !== undefined ? linked?.get(active.name)?.peerLabel : undefined
+		const portName = active?.name ?? 'Ethernet' + String(slot)
+		return {
+			slot,
+			port: portName,
+			displayName: endpointLabel(sw.id, portName),
+			oper: active?.oper,
+			admin: active?.admin,
+			peerLabel: peer,
+			subports: entries.map((port) => port.name),
+		}
+	})
+}
+
+export function LabView({ visible }: { visible: boolean }): JSX.Element {
+	const [view, setView] = useState<'physical' | 'experiment'>('physical')
+	const [experiment, setExperiment] = useState<ExperimentResponse>()
+	const [topology, setTopology] = useState<TopologyResponse>(MOCK_TOPOLOGY)
+	const [hydrated, setHydrated] = useState(false)
+	const [locks, setLocks] = useState<LocksResponse | undefined>()
+	const [lockLog, setLockLog] = useState<LockLogResponse | undefined>()
+	const [showLog, setShowLog] = useState(false)
+	const [error, setError] = useState<string>()
+	const [selected, setSelected] = useState<string>()
+	const [busy, setBusy] = useState(false)
+	const alive = useRef(true)
+
+	useEffect(() => {
+		alive.current = true
+		return () => { alive.current = false }
+	}, [])
+
+	const load = useCallback(async (fresh: boolean): Promise<void> => {
+		setBusy(true)
+		try {
+			const [nextTopology, nextLocks, nextExperiment] = await Promise.all([fetchTopology(fresh), fetchLocks(), fetchExperiment()])
+			if (!alive.current) return
+			// Commit one complete snapshot: panels stay on mock data until port
+			// state, LLDP links and locks have all finished collecting.
+			setTopology(nextTopology)
+			setLocks(nextLocks)
+			setExperiment(nextExperiment)
+			setHydrated(true)
+			setError(undefined)
+		} catch (loadError) {
+			if (!alive.current) return
+			setError(String(loadError instanceof Error ? loadError.message : loadError))
+		} finally {
+			if (alive.current) setBusy(false)
+		}
+	}, [])
+
+	useEffect(() => {
+		if (!visible) return
+		void load(false)
+		const timer = setInterval(() => { void load(false) }, REFRESH_MS)
+		return () => { clearInterval(timer) }
+	}, [visible, load])
+
+	const loadLog = useCallback(async (): Promise<void> => {
+		setShowLog(true)
+		setLockLog(await fetchLockLog())
+	}, [])
+
+	const { nodes, edges } = useMemo(() => {
+		const orderOf = new Map(topology.switches.map((sw, index) => [sw.id, index]))
+		const portOper = new Map(topology.switches.flatMap((sw) => sw.ports.map((port) => [sw.id + ':' + port.name, port.oper] as const)))
+		const linkedBySw = new Map<string, Map<string, { peerLabel?: string }>>()
+		const register = (swId: string, port: string, peerLabel: string): void => {
+			const map = linkedBySw.get(swId) ?? new Map()
+			map.set(port, { peerLabel })
+			linkedBySw.set(swId, map)
+		}
+		for (const link of topology.links) {
+			register(link.a.sw, link.a.port, endpointLabel(link.b.sw, link.b.port))
+			register(link.b.sw, link.b.port, endpointLabel(link.a.sw, link.a.port))
+		}
+		const nodes: Node[] = topology.switches.map((sw: SwitchState, index: number) => {
+			const data: SwitchNodeData = {
+				id: sw.id,
+				name: sw.name,
+				ip: sw.ip,
+				group: sw.group,
+				reachable: sw.reachable,
+				version: sw.version,
+				selected: selected === sw.id,
+				loading: !hydrated,
+				ports: frontPortsOf(sw, linkedBySw.get(sw.id)),
+			}
+			return {
+				id: sw.id,
+				type: 'switch',
+				position: { x: 60, y: index * 235 + 30 },
+				data,
+				draggable: false,
+			}
+		})
+		const edges: Edge[] = topology.links.map((link) => {
+			const aFirst = (orderOf.get(link.a.sw) ?? 0) <= (orderOf.get(link.b.sw) ?? 0)
+			const source = aFirst ? link.a : link.b
+			const target = aFirst ? link.b : link.a
+			return {
+				id: link.id,
+				source: source.sw,
+				sourceHandle: source.port + ':source',
+				target: target.sw,
+				targetHandle: target.port + ':target',
+				label: endpointLabel(source.sw, source.port) + ' ↔ ' + endpointLabel(target.sw, target.port),
+				style: edgeStyle(link.source),
+				labelShowBg: true,
+				labelBgStyle: { fill: '#11151b', fillOpacity: 0.88 },
+				labelBgPadding: [5, 3],
+				labelBgBorderRadius: 4,
+				type: 'cable',
+				className: 'lab-cable-edge',
+				zIndex: 20,
+				data: {
+					sourceUp: portOper.get(source.sw + ':' + source.port) === 'up',
+					targetUp: portOper.get(target.sw + ':' + target.port) === 'up',
+				},
+				interactionWidth: 0,
+			}
+		})
+		return { nodes, edges }
+	}, [topology, selected, hydrated])
+
+	const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => { setSelected(node.id) }, [])
+	const closeDetail = useCallback(() => { setSelected(undefined) }, [])
+
+	const selectedSw = topology?.switches.find((sw) => sw.id === selected)
+	const selectedLinks = topology?.links.filter((l) => l.a.sw === selected || l.b.sw === selected) ?? []
+	const unreachable = topology?.switches.filter((sw) => !sw.reachable) ?? []
+
+	return (
+		<div className="lab-root">
+			<StyleInjector />
+			<div className="lab-toolbar">
+				<span className="lab-title">Lab 控制台</span>
+				<div className="lab-view-switch">
+					<button className={view === 'physical' ? 'active' : ''} onClick={() => setView('physical')}>物理拓扑</button>
+					<button className={view === 'experiment' ? 'active' : ''} onClick={() => { setView('experiment'); closeDetail() }}>实验拓扑</button>
+				</div>
+				{(locks?.groups ?? []).map((group) => (
+					<span key={group.group} className={'lab-lockchip ' + group.state} title={group.raw}>
+						{'组 ' + group.group + ': ' + (group.state === 'free' ? '空闲' : group.state === 'busy' ? '占用' : '未知')}
+					</span>
+			))}
+			<span style={{ flex: 1 }} />
+			<button className="lab-btn" onClick={() => void loadLog()} disabled={showLog}>锁日志</button>
+			<button className="lab-btn" onClick={() => void load(true)} disabled={busy}>{busy ? '采集中…' : '刷新'}</button>
+			</div>
+			{error !== undefined && (
+				<div className="lab-toolbar"><span className="lab-error">{error}</span></div>
+			)}
+			<div className="lab-main">
+				{view === 'experiment' ? (
+					experiment !== undefined
+						? <ExperimentView definition={experiment.definition} topology={topology} hydrated={hydrated} />
+						: <div className="exp-loading">正在读取 experiment.yml…</div>
+				) : (<>
+				<div className={'lab-canvas' + (hydrated ? ' hydrated' : ' loading')}>
+					<ReactFlow
+						nodes={nodes}
+						edges={edges}
+						nodeTypes={{ switch: SwitchNode }}
+						edgeTypes={EDGE_TYPES}
+						onNodeClick={onNodeClick}
+						onPaneClick={closeDetail}
+						fitView
+						proOptions={{ hideAttribution: true }}
+						nodesConnectable={false}
+						elementsSelectable
+					>
+					<Background gap={18} size={1} />
+					<MiniMap pannable zoomable style={{ width: 120, height: 80 }} />
+					<Controls showInteractive={false} />
+				</ReactFlow>
+				</div>
+				{selectedSw !== undefined && (
+					<div className="lab-side lab-detail-float">
+						<button className="lab-detail-close" onClick={closeDetail} aria-label="关闭端口详情">×</button>
+						<h4 className="lab-mono">{selectedSw.name.toUpperCase()} <span className="lab-sw-group">{'G-' + selectedSw.group}</span></h4>
+						<p><span className="kv">IP</span><span className="lab-mono">{selectedSw.ip}</span></p>
+						<p><span className="kv">状态</span>{hydrated ? (selectedSw.reachable ? '可达' : <span className="lab-error">不可达: {selectedSw.error}</span>) : '正在采集…'}</p>
+						{selectedSw.version !== undefined && <p className="lab-mono" style={{ fontSize: 11 }}>{selectedSw.version}</p>}
+						<div className="lab-swdetail-links">
+							{selectedLinks.map((link) => (
+								<div key={link.id} className="lab-linkrow">
+									<span className="lab-mono">{endpointLabel(link.a.sw, link.a.port)} ↔ {endpointLabel(link.b.sw, link.b.port)}</span>
+									<span className={'lab-tag ' + link.source}>{link.source}</span>
+								</div>
+							))}
+						</div>
+						<table className="lab-table">
+							<thead><tr><th>端口</th><th>别名</th><th>速率</th><th>Oper</th><th>LLDP 邻居</th></tr></thead>
+							<tbody>
+								{selectedSw.ports.map((port) => (
+									<tr key={port.name}>
+										<td className="lab-mono">{endpointLabel(selectedSw.id, port.name)}</td>
+										<td>{port.alias ?? '-'}</td>
+										<td>{port.speed ?? '-'}</td>
+										<td className={port.oper === 'up' ? 'lab-up' : 'lab-down'}>{port.oper ?? '-'}</td>
+										<td>{port.lldpPeer !== undefined ? endpointLabel(port.lldpPeer.device, port.lldpPeer.port) : '-'}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</div>
+				)}
+				</>)}
+			</div>
+			{showLog && lockLog !== undefined && (
+				<div className="lab-toolbar">
+					<div className="lab-pre" style={{ flex: 1 }}>{lockLog.lines.join('\n')}</div>
+					<button className="lab-btn" onClick={() => setShowLog(false)}>收起</button>
+				</div>
+			)}
+			<div className="lab-footer">
+				<span>{hydrated ? '采集于 ' + timeLabel(topology.fetchedAt) + ' (' + String(topology.durationMs) + 'ms' + (topology.cached ? ', 缓存' : '') + ')' : '已加载 mock 面板，正在完整采集端口和 LLDP…'}</span>
+				{hydrated && unreachable.length > 0 && <span className="lab-error">{'不可达: ' + unreachable.map((sw) => sw.name).join(', ')}</span>}
+				{locks?.error !== undefined && locks.error.length > 0 && <span className="lab-error">{'锁状态: ' + locks.error}</span>}
+			</div>
+		</div>
+	)
+}

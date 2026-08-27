@@ -1,0 +1,85 @@
+{
+  "name": "dsh-lab-controller",
+  "version": "0.1.0",
+  "description": "DSH web plugin: lab controller sidebar tab - physical switch topology (LLDP + static cabling), per-port status, A/B group lock state. Read-only in v1; no config-write channel exists by design.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "cpu-features",
+      "node-pty",
+      "ssh2"
+    ]
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "lab.json",
+    "experiment.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node scripts/inline-css.mjs",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "watch": "tsdown --watch"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0",
+    "yaml": "^2.8.1"
+  },
+  "peerDependencies": {
+    "cordis": "^4.0.0-rc.8"
+  },
+  "peerDependenciesMeta": {
+    "cordis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.1",
+    "@types/ssh2": "^1.15.5",
+    "@xyflow/react": "^12.3.6",
+    "cordis": "^4.0.0-rc.8",
+    "dsh-better-sidebar": "^0.15.2",
+    "react": "^18.2.0",
+    "react-dom": "18.2.0",
+    "tsdown": "^0.12.7",
+    "typescript": "^5.6.0"
+  },
+  "license": "MIT"
+}

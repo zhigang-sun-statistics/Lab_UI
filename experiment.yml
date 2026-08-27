@@ -1,0 +1,84 @@
+apiVersion: soniclab/v1
+kind: Experiment
+metadata:
+  name: ag100-ag200-reference
+  title: Ag100 / Ag200 实验拓扑
+  description: YAML 表达实验意图；实时端口与 LLDP 用于状态校验。
+render:
+  defaultView: logical
+  width: 1500
+  height: 840
+nodes:
+  - id: sw1
+    type: switch
+    device: sw1
+    label: SW1 164
+    position: { x: 170, y: 50 }
+  - id: sw2
+    type: switch
+    device: sw2
+    label: SW2 165
+    position: { x: 930, y: 50 }
+  - id: sw3
+    type: switch
+    device: sw3
+    label: SW3 166
+    position: { x: 170, y: 540 }
+  - id: sw4
+    type: switch
+    device: sw4
+    label: SW4 167
+    position: { x: 930, y: 540 }
+links:
+  - id: ag100-sw1-sw3
+    from:
+      node: sw1
+      interface: Ethernet28
+      address: 10.10.10.254
+      annotation: { dx: -18, dy: 48, align: right }
+    to:
+      node: sw3
+      interface: Ethernet6
+      address: 10.10.10.1
+      annotation: { dx: -18, dy: -86, align: right }
+    bundle: Ag100
+    speed: 200G
+  - id: ag200-sw1-sw4
+    from:
+      node: sw1
+      interface: Ethernet22
+      address: 10.10.10.254
+      annotation: { dx: -18, dy: 48, align: right }
+    to:
+      node: sw4
+      interface: Ethernet8
+      address: 10.10.10.2
+      annotation: { dx: -18, dy: -86, align: right }
+    bundle: Ag200
+    speed: 200G
+  - id: ag100-sw2-sw3
+    from:
+      node: sw2
+      interface: Ethernet4
+      address: 10.10.10.254
+      annotation: { dx: -18, dy: 48, align: right }
+    to:
+      node: sw3
+      interface: Ethernet26
+      address: 10.10.10.1
+      annotation: { dx: 18, dy: -86, align: left }
+    bundle: Ag100
+    speed: 100G
+  - id: ag200-sw2-sw4
+    from:
+      node: sw2
+      interface: Ethernet8
+      address: 10.10.10.254
+      annotation: { dx: 18, dy: 48, align: left }
+    to:
+      node: sw4
+      interface: Ethernet22
+      address: 10.10.10.2
+      annotation: { dx: 18, dy: -86, align: left }
+    bundle: Ag200
+    speed: 200G
