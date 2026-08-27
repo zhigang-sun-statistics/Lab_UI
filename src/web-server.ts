@@ -16,6 +16,14 @@ const PASSWORD = process.env.LAB_WEB_PASSWORD ?? 'szg'
 const ROOT = dirname(fileURLToPath(import.meta.url))
 const sessions = new Map<string, number>()
 const TTL = 8 * 60 * 60 * 1000
+let collectionCache: { at: number; value: Awaited<ReturnType<typeof collect>> } | undefined
+let collectionInflight: ReturnType<typeof collect> | undefined
+
+const getCollection = async (lab: Awaited<ReturnType<typeof loadLabConfig>>, fresh = false): Promise<Awaited<ReturnType<typeof collect>>> => {
+  if (!fresh && collectionCache !== undefined && Date.now() - collectionCache.at < 15000) return collectionCache.value
+  collectionInflight ??= collect(lab, 15000).then((value) => { collectionCache = { at: Date.now(), value }; return value }).finally(() => { collectionInflight = undefined })
+  return await collectionInflight
+}
 
 const json = (res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra })
@@ -63,12 +71,13 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   const lab = await loadLabConfig()
   if (path === '/api/lab/experiment' && req.method === 'GET') { json(res, 200, await loadExperimentDefinition()); return true }
   if (path === '/api/lab/topology' && req.method === 'GET') {
-    const collected = await collect(lab, 15000)
+    const started = Date.now()
+    const collected = await getCollection(lab, new URL(req.url ?? '/', 'http://localhost').searchParams.get('fresh') === '1')
     const result = buildTopology(lab, collected)
-    json(res, 200, { fetchedAt: Date.now(), durationMs: 0, cached: false, ...result }); return true
+    json(res, 200, { fetchedAt: Date.now(), durationMs: Date.now() - started, cached: false, ...result }); return true
   }
   if (path === '/api/lab/locks' && req.method === 'GET') {
-    const collected = await collect(lab, 15000)
+    const collected = await getCollection(lab)
     json(res, 200, { fetchedAt: Date.now(), groups: parseSws(collected.locks.raw), raw: collected.locks.raw, error: collected.locks.error }); return true
   }
   if (path === '/api/lab/port-description' && req.method === 'POST') {
@@ -76,6 +85,7 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
     if (typeof input.switchId !== 'string' || typeof input.interfaceName !== 'string' || typeof input.description !== 'string') { json(res, 400, { error: 'switchId, interfaceName and description are required' }); return true }
     const result = await setInterfaceDescription(lab, input.switchId, input.interfaceName, input.description, 15000)
     if (result.code !== 0) { json(res, 502, { error: result.err || result.out, code: result.code }); return true }
+    collectionCache = undefined
     json(res, 200, { ok: true, output: result.out }); return true
   }
   if (path === '/api/lab/locklog' && req.method === 'GET') {
