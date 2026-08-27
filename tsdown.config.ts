@@ -59,4 +59,19 @@ const web = {
   outputOptions: { entryFileNames: 'web.js' },
 }
 
-export default defineConfig([lib, client, web])
+const ssh = {
+  name: 'dsh-lab-controller/ssh',
+  entry: { ssh: 'src/ssh/index.tsx' },
+  outDir: 'lib',
+  format: 'esm' as const,
+  platform: 'browser' as const,
+  target: 'es2020',
+  dts: false,
+  clean: false,
+  sourcemap: true,
+  noExternal: /.*/,
+  define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') },
+  outputOptions: { entryFileNames: 'ssh.js' },
+}
+
+export default defineConfig([lib, client, web, ssh])

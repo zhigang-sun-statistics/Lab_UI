@@ -93,6 +93,9 @@
 .lab-mono { font-family:ui-monospace,Consolas,monospace; }
 .lab-swdetail-links { margin:8px 0; }
 .lab-linkrow { padding:2px 0; color:var(--dsw-alias-label-secondary,#c3cad6); }
+.lab-ssh-button { width:22px; height:20px; padding:2px; display:grid; place-items:center; border:1px solid #3b4b57; border-radius:3px; background:#121a21; color:#66d7ab; cursor:pointer; }
+.lab-ssh-button:hover { border-color:#61dfad; background:#183128; box-shadow:0 0 8px rgba(79,217,164,.24); }
+.lab-ssh-button svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .lab-face-port[role=button] { cursor:pointer; }
 .lab-face-port[role=button]:hover .lab-face-cage { border-color:#58d8a7; box-shadow:0 0 0 1px #58d8a7,0 0 11px rgba(88,216,167,.35); }
 .lab-port-focus { margin:10px 0; padding:12px; border:1px solid #34424e; background:#0d1319; }

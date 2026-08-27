@@ -8,6 +8,7 @@
  *   jumphost      : sws / "swl | tail -N"
  */
 import { Client, type ConnectConfig } from 'ssh2'
+import type { Duplex } from 'node:stream'
 import type { LabConfig } from './config.ts'
 
 export interface ExecResult {
@@ -164,6 +165,25 @@ export async function collect(lab: LabConfig, timeoutMs: number): Promise<Collec
 	} finally {
 		jump.end()
 	}
+}
+
+export interface InteractiveShell { write(data: string): void; resize(cols: number, rows: number): void; close(): void }
+
+/** Open an interactive switch shell over the configured jump host. */
+export async function openInteractiveShell(lab: LabConfig, switchId: string, cols: number, rows: number, onData: (data: string) => void, onClose: (message?: string) => void): Promise<InteractiveShell> {
+	const sw = lab.switches.find((item) => item.id === switchId)
+	if (sw === undefined) throw new Error('unknown switch')
+	const jump = await connectClient({ host: lab.jumphost.host, port: lab.jumphost.port ?? 22, username: lab.jumphost.username, password: lab.jumphost.password, readyTimeout: 12000 })
+	let target: Client | undefined
+	try {
+		const sock = await new Promise<Duplex>((resolve, reject) => jump.forwardOut('127.0.0.1', 0, sw.ip, lab.switch.port ?? 22, (error, stream) => error !== undefined && error !== null ? reject(error) : stream === undefined ? reject(new Error('forwardOut returned no stream')) : resolve(stream)))
+		target = await connectClient({ sock, username: lab.switch.username, password: lab.switch.password, readyTimeout: 12000 })
+		const stream = await new Promise<import('ssh2').ClientChannel>((resolve, reject) => target?.shell({ term: 'xterm-256color', cols, rows }, (error, channel) => error !== undefined && error !== null ? reject(error) : channel === undefined ? reject(new Error('shell returned no stream')) : resolve(channel)))
+		stream.on('data', (chunk: Buffer) => onData(chunk.toString('utf8')))
+		stream.on('close', () => { target?.end(); jump.end(); onClose() })
+		stream.on('error', (error: Error) => onClose(error.message))
+		return { write: (data) => stream.write(data), resize: (nextCols, nextRows) => stream.setWindow(nextRows, nextCols, 0, 0), close: () => { stream.end(); target?.end(); jump.end() } }
+	} catch (error) { target?.end(); jump.end(); throw error }
 }
 
 /** Update only an interface description; callers cannot submit arbitrary commands. */

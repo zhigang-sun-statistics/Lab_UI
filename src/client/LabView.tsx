@@ -90,7 +90,7 @@ const frontPortsOf = (
 	})
 }
 
-export function LabView({ visible }: { visible: boolean }): JSX.Element {
+export function LabView({ visible, showExperiment = true, onOpenSsh }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void }): JSX.Element {
 	const [view, setView] = useState<'physical' | 'experiment'>('physical')
 	const [experiment, setExperiment] = useState<ExperimentResponse>()
 	const [topology, setTopology] = useState<TopologyResponse>(MOCK_TOPOLOGY)
@@ -112,13 +112,13 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 	const load = useCallback(async (fresh: boolean): Promise<void> => {
 		setBusy(true)
 		try {
-			const [nextTopology, nextLocks, nextExperiment] = await Promise.all([fetchTopology(fresh), fetchLocks(), fetchExperiment()])
+			const [nextTopology, nextLocks, nextExperiment] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined)])
 			if (!alive.current) return
 			// Commit one complete snapshot: panels stay on mock data until port
 			// state, LLDP links and locks have all finished collecting.
 			setTopology(nextTopology)
 			setLocks(nextLocks)
-			setExperiment(nextExperiment)
+			if (nextExperiment !== undefined) setExperiment(nextExperiment)
 			setHydrated(true)
 			setError(undefined)
 		} catch (loadError) {
@@ -127,7 +127,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 		} finally {
 			if (alive.current) setBusy(false)
 		}
-	}, [])
+	}, [showExperiment])
 
 	useEffect(() => {
 		if (!visible) return
@@ -166,6 +166,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 				loading: !hydrated,
 				ports: frontPortsOf(sw, linkedBySw.get(sw.id)),
 				onPortClick: (port) => { setSelected(sw.id); setSelectedPort(port.port) },
+				onSsh: onOpenSsh === undefined ? undefined : () => onOpenSsh(sw.id),
 			}
 			return {
 				id: sw.id,
@@ -202,7 +203,7 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 			}
 		})
 		return { nodes, edges }
-	}, [topology, selected, hydrated])
+	}, [topology, selected, hydrated, onOpenSsh])
 
 	const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => { setSelected(node.id) }, [])
 	const closeDetail = useCallback(() => { setSelected(undefined); setSelectedPort(undefined) }, [])
@@ -225,10 +226,10 @@ export function LabView({ visible }: { visible: boolean }): JSX.Element {
 			<StyleInjector />
 			<div className="lab-toolbar">
 				<span className="lab-title">Lab 控制台</span>
-				<div className="lab-view-switch">
+				{showExperiment && <div className="lab-view-switch">
 					<button className={view === 'physical' ? 'active' : ''} onClick={() => setView('physical')}>物理拓扑</button>
 					<button className={view === 'experiment' ? 'active' : ''} onClick={() => { setView('experiment'); closeDetail() }}>实验拓扑</button>
-				</div>
+				</div>}
 				{(locks?.groups ?? []).map((group) => (
 					<span key={group.group} className={'lab-lockchip ' + group.state} title={group.raw}>
 						{'组 ' + group.group + ': ' + (group.state === 'free' ? '空闲' : group.state === 'busy' ? '占用' : '未知')}

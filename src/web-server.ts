@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
+import { WebSocketServer } from 'ws'
 import { loadLabConfig } from './config.ts'
-import { collect, collectLockLog, setInterfaceDescription } from './collector.ts'
+import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription } from './collector.ts'
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
@@ -99,12 +100,25 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname.startsWith('/api/')) { await api(req, res, url.pathname); return }
-    const file = url.pathname === '/' ? join(ROOT, '..', 'web', 'index.html') : url.pathname === '/web.js' ? join(ROOT, 'web.js') : url.pathname === '/web.css' ? join(ROOT, 'web.css') : ''
+    const file = url.pathname === '/' ? join(ROOT, '..', 'web', 'index.html') : url.pathname === '/ssh.html' ? join(ROOT, '..', 'web', 'ssh.html') : url.pathname === '/web.js' ? join(ROOT, 'web.js') : url.pathname === '/web.css' ? join(ROOT, 'web.css') : url.pathname === '/ssh.js' ? join(ROOT, 'ssh.js') : url.pathname === '/ssh.css' ? join(ROOT, 'ssh.css') : ''
     if (file.length === 0) { res.writeHead(404); res.end('Not found'); return }
     const content = await readFile(file)
     const type = file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }); res.end(content)
   } catch (error) { json(res, 500, { error: String(error instanceof Error ? error.message : error) }) }
+})
+
+const wss = new WebSocketServer({ noServer: true })
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  if (url.pathname !== '/api/lab/ssh' || !authenticated(req)) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    const switchId = url.searchParams.get('switch') ?? ''
+    void loadLabConfig().then((lab) => openInteractiveShell(lab, switchId, 120, 34, (data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() })).then((shell) => {
+      ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') shell.write(message.data); if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
+      ws.on('close', () => shell.close())
+    }).catch((error) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
+  })
 })
 
 server.listen(PORT, HOST, () => console.log('Lab Web listening on http://' + HOST + ':' + PORT))
