@@ -29,7 +29,7 @@ export function SshTerminal({ switchId, onConnectionChange }: { switchId: string
   useEffect(() => {
     if (host.current === null || !/^sw\d+$/.test(switchId)) { onConnectionChange?.('error'); return }
     onConnectionChange?.('connecting')
-    const terminal = new Terminal({ cursorBlink: true, convertEol: true, fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 14, lineHeight: 1.2, theme: { background: '#090e13', foreground: '#dce7ee', cursor: '#62e0ae', selectionBackground: '#315b4d', black: '#111820', brightBlack: '#647582', green: '#5bd7a5', brightGreen: '#84edc1', cyan: '#5ebbd0', brightCyan: '#8ad9e9', red: '#dc717b', brightRed: '#f18d96', yellow: '#d0a85f', brightYellow: '#e4c27e', blue: '#699ddb', brightBlue: '#88b7ec', magenta: '#aa8bd1', brightMagenta: '#c4a7e5', white: '#c5d0d8', brightWhite: '#f3f7fa' } })
+    const terminal = new Terminal({ cursorBlink: true, convertEol: true, fontFamily: 'MobaFont, Cascadia Mono, JetBrains Mono, Consolas, monospace', fontSize: 14, lineHeight: 1.2, theme: { background: '#1e1e1e', foreground: '#ececec', cursor: '#b4b4c0', cursorAccent: '#1e1e1e', selectionBackground: '#4a5260', black: '#000000', brightBlack: '#808080', red: '#bb0000', brightRed: '#ff5555', green: '#00bb00', brightGreen: '#55ff55', yellow: '#bbbb00', brightYellow: '#ffff55', blue: '#0000bb', brightBlue: '#5555ff', magenta: '#bb00bb', brightMagenta: '#ff55ff', cyan: '#00bbbb', brightCyan: '#55ffff', white: '#bbbbbb', brightWhite: '#ffffff' } })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(host.current)
