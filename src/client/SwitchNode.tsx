@@ -29,6 +29,7 @@ export interface SwitchNodeData extends Record<string, unknown> {
 	ports: FrontPort[]
 	onPortClick?: (port: FrontPort) => void
 	onSsh?: () => void
+	onSshAdd?: () => void
 }
 
 const operClass = (port: FrontPort): string => {
@@ -69,6 +70,7 @@ export function SwitchNode({ data }: NodeProps): JSX.Element {
 				<span className={'lab-sw-dot' + (sw.reachable ? '' : ' down')} />
 				<strong>{sw.name}</strong>
 				{sw.onSsh !== undefined && <button className="lab-ssh-button" title={'打开 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); sw.onSsh?.() }} aria-label={'打开 ' + sw.name + ' SSH 终端'}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m5 0h5"/></svg></button>}
+				{sw.onSshAdd !== undefined && <button className="lab-ssh-add" title={'再打开一个 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); sw.onSshAdd?.() }} aria-label={'新增 ' + sw.name + ' SSH 终端'}>+</button>}
 				<span className="lab-sw-group">{'G-' + sw.group}</span>
 				<span className="lab-device-ip">{sw.ip}</span>
 				<span className="lab-device-port-summary">{sw.loading ? 'SYNCING…' : sw.ports.filter((p) => p.oper === 'up').length + '/32 UP'}</span>

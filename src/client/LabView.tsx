@@ -90,7 +90,7 @@ const frontPortsOf = (
 	})
 }
 
-export function LabView({ visible, showExperiment = true, onOpenSsh }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void }): JSX.Element {
+export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, sshInstanceCounts = {} }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void; onAddSsh?: (switchId: string) => void; sshInstanceCounts?: Record<string, number> }): JSX.Element {
 	const [view, setView] = useState<'physical' | 'experiment'>('physical')
 	const [experiment, setExperiment] = useState<ExperimentResponse>()
 	const [topology, setTopology] = useState<TopologyResponse>(MOCK_TOPOLOGY)
@@ -167,6 +167,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh }: { visible
 				ports: frontPortsOf(sw, linkedBySw.get(sw.id)),
 				onPortClick: (port) => { setSelected(sw.id); setSelectedPort(port.port) },
 				onSsh: onOpenSsh === undefined ? undefined : () => onOpenSsh(sw.id),
+				onSshAdd: onAddSsh !== undefined && (sshInstanceCounts[sw.id] ?? 0) > 0 ? () => onAddSsh(sw.id) : undefined,
 			}
 			return {
 				id: sw.id,
@@ -203,7 +204,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh }: { visible
 			}
 		})
 		return { nodes, edges }
-	}, [topology, selected, hydrated, onOpenSsh])
+	}, [topology, selected, hydrated, onOpenSsh, onAddSsh, sshInstanceCounts])
 
 	const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => { setSelected(node.id) }, [])
 	const closeDetail = useCallback(() => { setSelected(undefined); setSelectedPort(undefined) }, [])
