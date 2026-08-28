@@ -9,6 +9,7 @@ import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription,
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
+import { addAttachment, addMessage, createJob, generateArtifacts, getProvider, listJobs, loadJob, readArtifact, setProvider } from './agent/service.ts'
 
 const HOST = process.env.LAB_WEB_HOST ?? '0.0.0.0'
 const PORT = Number(process.env.LAB_WEB_PORT ?? 8889)
@@ -79,7 +80,21 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (path === '/api/lab/session' && req.method === 'GET') { const session = sessionOf(req); json(res, session === undefined ? 401 : 200, session === undefined ? { error: '未登录' } : { username: session.username, network: 'ZNSL', jumpHost: JUMP_HOST }); return true }
   const session = sessionOf(req)
   if (session === undefined) { json(res, 401, { error: '未登录' }); return true }
+  if (path === '/api/agent/me/provider' && req.method === 'GET') { json(res, 200, await getProvider(session.username)); return true }
+  if (path === '/api/agent/me/provider' && req.method === 'PUT') { const input = await body(req); if ((input.provider !== 'mock' && input.provider !== 'deepseek' && input.provider !== 'openai-compatible') || typeof input.model !== 'string') { json(res, 400, { error: 'provider and model are required' }); return true } json(res, 200, await setProvider(session.username, { provider: input.provider, model: input.model, baseUrl: typeof input.baseUrl === 'string' ? input.baseUrl : undefined, apiKey: typeof input.apiKey === 'string' ? input.apiKey : undefined })); return true }
+  if (path === '/api/agent/me/jobs' && req.method === 'GET') { json(res, 200, { jobs: await listJobs(session.username) }); return true }
+  if (path === '/api/agent/me/jobs' && req.method === 'POST') { const input = await body(req); json(res, 201, await createJob(session.username, typeof input.title === 'string' ? input.title : undefined)); return true }
+  const agentJobMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)$/)
+  if (agentJobMatch !== null && req.method === 'GET') { json(res, 200, await loadJob(session.username, agentJobMatch[1] ?? '')); return true }
+  const attachmentMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/attachments$/)
+  if (attachmentMatch !== null && req.method === 'POST') { const input = await body(req); if (typeof input.name !== 'string' || typeof input.mimeType !== 'string' || typeof input.data !== 'string') { json(res, 400, { error: 'name, mimeType and base64 data are required' }); return true } json(res, 200, await addAttachment(session.username, attachmentMatch[1] ?? '', { name: input.name, mimeType: input.mimeType, data: input.data })); return true }
+  const messageMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/messages$/)
+  if (messageMatch !== null && req.method === 'POST') { const input = await body(req); json(res, 200, await addMessage(session.username, messageMatch[1] ?? '', typeof input.content === 'string' ? input.content : '', Array.isArray(input.attachmentIds) ? input.attachmentIds.filter((id): id is string => typeof id === 'string') : [])); return true }
   const lab = await labForSession(session)
+  const generateMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/generate$/)
+  if (generateMatch !== null && req.method === 'POST') { const collected = await getCollection(lab, true); const topology = buildTopology(lab, collected); json(res, 200, await generateArtifacts(session.username, generateMatch[1] ?? '', { fetchedAt: Date.now(), durationMs: 0, cached: false, ...topology })); return true }
+  const artifactMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/artifacts\/(art_[a-f0-9-]+)$/)
+  if (artifactMatch !== null && req.method === 'GET') { const result = await readArtifact(session.username, artifactMatch[1] ?? '', artifactMatch[2] ?? ''); const type = result.artifact.name.endsWith('.yml') || result.artifact.name.endsWith('.yaml') ? 'application/yaml; charset=utf-8' : result.artifact.name.endsWith('.zip') ? 'application/zip' : 'text/plain; charset=utf-8'; res.writeHead(200, { 'content-type': type, 'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(result.artifact.name), 'content-length': String(result.data.length), 'cache-control': 'no-store' }); res.end(result.data); return true }
   if (path === '/api/lab/experiment' && req.method === 'GET') { json(res, 200, await loadExperimentDefinition()); return true }
   if (path === '/api/lab/topology' && req.method === 'GET') {
     const started = Date.now()
