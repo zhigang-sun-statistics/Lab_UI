@@ -173,6 +173,19 @@ export async function collect(lab: LabConfig, timeoutMs: number): Promise<Collec
 	}
 }
 
+export async function withSwitchSftp<T>(lab: LabConfig, switchId: string, operation: (sftp: import('ssh2').SFTPWrapper) => Promise<T>): Promise<T> {
+	const sw = lab.switches.find((item) => item.id === switchId)
+	if (sw === undefined) throw new Error('unknown switch')
+	const jump = await connectClient({ host: lab.jumphost.host, port: lab.jumphost.port ?? 22, username: lab.jumphost.username, password: lab.jumphost.password, readyTimeout: 12000 })
+	let target: Client | undefined
+	try {
+		const sock = await new Promise<Duplex>((resolve, reject) => jump.forwardOut('127.0.0.1', 0, sw.ip, lab.switch.port ?? 22, (error, stream) => error !== undefined && error !== null ? reject(error) : stream === undefined ? reject(new Error('forwardOut returned no stream')) : resolve(stream)))
+		target = await connectClient({ sock, username: lab.switch.username, password: lab.switch.password, readyTimeout: 12000 })
+		const sftp = await new Promise<import('ssh2').SFTPWrapper>((resolve, reject) => target?.sftp((error, value) => error !== undefined && error !== null ? reject(error) : value === undefined ? reject(new Error('SFTP session unavailable')) : resolve(value)))
+		try { return await operation(sftp) } finally { sftp.end() }
+	} finally { target?.end(); jump.end() }
+}
+
 export interface InteractiveShell { write(data: string): void; resize(cols: number, rows: number): void; close(): void }
 
 /** Open an interactive switch shell over the configured jump host. */

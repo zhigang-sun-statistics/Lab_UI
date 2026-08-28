@@ -10,6 +10,7 @@ import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
 import { addAttachment, addMessage, createJob, generateArtifacts, getProvider, listJobs, loadJob, readArtifact, setProvider } from './agent/service.ts'
+import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, receiveUpload } from './file-transfer/service.ts'
 
 const HOST = process.env.LAB_WEB_HOST ?? '0.0.0.0'
 const PORT = Number(process.env.LAB_WEB_PORT ?? 8889)
@@ -91,6 +92,17 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   const messageMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/messages$/)
   if (messageMatch !== null && req.method === 'POST') { const input = await body(req); json(res, 200, await addMessage(session.username, messageMatch[1] ?? '', typeof input.content === 'string' ? input.content : '', Array.isArray(input.attachmentIds) ? input.attachmentIds.filter((id): id is string => typeof id === 'string') : [])); return true }
   const lab = await labForSession(session)
+  if (path === '/api/files/me/switches' && req.method === 'GET') { json(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return true }
+  if (path === '/api/files/me/remote' && req.method === 'GET') { const url = new URL(req.url ?? '/', 'http://localhost'); const switchId = url.searchParams.get('switch') ?? ''; const remotePath = url.searchParams.get('path') ?? '/home/admin'; json(res, 200, await listRemote(lab, switchId, remotePath)); return true }
+  if (path === '/api/files/me/remote/directories' && req.method === 'POST') { const input = await body(req); if (typeof input.switchId !== 'string' || typeof input.parent !== 'string' || typeof input.name !== 'string') { json(res, 400, { error: 'switchId, parent and name are required' }); return true } await makeRemoteDirectory(lab, input.switchId, input.parent, input.name); json(res, 200, { ok: true }); return true }
+  if (path === '/api/files/me/transfers' && req.method === 'GET') { json(res, 200, { transfers: listTransfers(session.username) }); return true }
+  if (path === '/api/files/me/transfers' && req.method === 'POST') { const input = await body(req); if (input.direction === 'upload' && typeof input.switchId === 'string' && typeof input.remoteDirectory === 'string' && typeof input.fileName === 'string' && typeof input.size === 'number') { json(res, 201, await createUploadTask(session.username, { switchId: input.switchId, remoteDirectory: input.remoteDirectory, fileName: input.fileName, size: input.size, overwrite: input.overwrite === true })); return true } if (input.direction === 'download' && typeof input.switchId === 'string' && typeof input.remotePath === 'string') { json(res, 201, await createDownloadTask(session.username, { switchId: input.switchId, remotePath: input.remotePath }, lab)); return true } json(res, 400, { error: 'invalid transfer request' }); return true }
+  const transferContentMatch = path.match(/^\/api\/files\/me\/transfers\/(transfer_[a-f0-9-]+)\/content$/)
+  if (transferContentMatch !== null && req.method === 'PUT') { json(res, 202, await receiveUpload(session.username, transferContentMatch[1] ?? '', req, lab)); return true }
+  const transferDownloadMatch = path.match(/^\/api\/files\/me\/transfers\/(transfer_[a-f0-9-]+)\/download$/)
+  if (transferDownloadMatch !== null && req.method === 'GET') { const result = await readDownloadedFile(session.username, transferDownloadMatch[1] ?? ''); res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(result.task.fileName), 'content-length': String(result.data.length), 'cache-control': 'no-store' }); res.end(result.data); return true }
+  const transferCancelMatch = path.match(/^\/api\/files\/me\/transfers\/(transfer_[a-f0-9-]+)\/cancel$/)
+  if (transferCancelMatch !== null && req.method === 'POST') { json(res, 200, await cancelTransfer(session.username, transferCancelMatch[1] ?? '')); return true }
   const generateMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/generate$/)
   if (generateMatch !== null && req.method === 'POST') { const collected = await getCollection(lab, true); const topology = buildTopology(lab, collected); json(res, 200, await generateArtifacts(session.username, generateMatch[1] ?? '', { fetchedAt: Date.now(), durationMs: 0, cached: false, ...topology })); return true }
   const artifactMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/artifacts\/(art_[a-f0-9-]+)$/)
