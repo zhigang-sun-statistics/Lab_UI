@@ -66,6 +66,24 @@ export interface TopologyResponse {
 	links: LinkState[]
 }
 
+/** One user-declared shared use of a switch or physical port. */
+export interface ResourceUsage {
+	id: string
+	username: string
+	switchId: string
+	portName?: string
+	purpose?: string
+	startedAt: number
+	updatedAt: number
+}
+
+/** GET /api/lab/resource-usage response. */
+export interface ResourceUsageResponse {
+	fetchedAt: number
+	mode: 'shared'
+	usages: ResourceUsage[]
+}
+
 /** One lock group (A/B) parsed from the jumphost `sws` output. */
 export interface LockGroup {
 	group: string

@@ -167,3 +167,27 @@
 .exp-port-note.align-center { margin-left:-105px; text-align:center; }
 .exp-port-note.align-right { margin-left:-210px; text-align:right; }
 @media (prefers-reduced-motion:reduce) { .exp-engineering-line { transition:none!important; } }
+
+/* Shared resource usage overlay: adds metadata without changing physical port geometry. */
+.lab-device-users { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:8px; padding:1px 6px; border:1px solid rgba(251,191,36,.4); border-radius:4px; color:#fcd34d; background:rgba(120,74,0,.18); font:9px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.lab-face-users { position:absolute; z-index:8; right:-4px; top:-5px; display:grid; place-items:center; min-width:13px; height:13px; padding:0 3px; border:1px solid #111923; border-radius:7px; color:#102118; background:#fbbf24; font:700 8px/1 ui-monospace,SFMono-Regular,Consolas,monospace; pointer-events:none; }
+.lab-usage-panel { margin:12px 0; border:1px solid #3d4c5c; border-radius:7px; background:#121922; overflow:hidden; }
+.lab-usage-panel>header { display:flex; align-items:center; gap:10px; padding:10px 11px; border-bottom:1px solid #2d3946; background:#17212c; }
+.lab-usage-panel>header>div { min-width:0; flex:1; }
+.lab-usage-panel>header small,.lab-usage-panel>header strong { display:block; }
+.lab-usage-panel>header small { color:#70ddb0; font:700 9px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.08em; }
+.lab-usage-panel>header strong { margin-top:3px; font-size:12px; }
+.lab-usage-panel>header>span { padding:2px 7px; border:1px solid rgba(34,197,94,.35); border-radius:9px; color:#86efac; background:rgba(34,197,94,.1); font-size:10px; white-space:nowrap; }
+.lab-usage-list { padding:5px 8px; }
+.lab-usage-list>p { margin:8px 3px; color:#8d9baa; font-size:11px; }
+.lab-usage-list article { display:flex; align-items:center; gap:8px; min-height:42px; padding:6px 3px; border-bottom:1px solid #26313d; }
+.lab-usage-list article:last-child { border-bottom:0; }
+.lab-usage-avatar { display:grid; place-items:center; width:26px; height:26px; flex:none; border:1px solid #42634f; border-radius:5px; color:#9aebbd; background:#173124; font:700 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.lab-usage-list article>div { min-width:0; flex:1; }
+.lab-usage-list article b,.lab-usage-list article small { display:block; }
+.lab-usage-list article b { font-size:11px; }
+.lab-usage-list article small { margin-top:2px; overflow:hidden; color:#8d9baa; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.lab-usage-list article .lab-btn { min-height:28px; padding:2px 8px; }
+.lab-usage-start { width:calc(100% - 16px); min-height:34px; margin:2px 8px 9px; border:1px solid #3b7b55; border-radius:5px; color:#b7f7ce; background:rgba(34,197,94,.12); cursor:pointer; font-size:11px; }
+.lab-usage-start:hover { border-color:#22c55e; background:rgba(34,197,94,.2); }
+.lab-usage-start:disabled { opacity:.55; cursor:default; }
