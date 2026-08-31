@@ -22,7 +22,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
 Write-Host "[Lab_UI] Repository: $repo" -ForegroundColor Cyan
-Invoke-Native git config --global --add safe.directory ($repo -replace '\','/')
+Invoke-Native git config --global --add safe.directory ($repo.Replace('\','/'))
 
 $generatedStyle = "src/client/styles.gen.ts"
 if (Test-Path $generatedStyle) {
