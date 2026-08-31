@@ -35,7 +35,8 @@ code,time,.web-kicker{font-family:var(--ux-mono);font-variant-numeric:tabular-nu
 .web-user code{padding:6px 9px;border:1px solid var(--ux-border);border-radius:var(--ux-radius-sm);color:var(--ux-text-2);background:var(--ux-panel);font-size:12px}
 .web-user button{min-height:34px;padding:0 12px;border:1px solid var(--ux-border);border-radius:var(--ux-radius-sm);background:transparent;color:var(--ux-text-2);font-size:12px}
 .web-user button:hover{border-color:#64748b;background:var(--ux-hover);color:var(--ux-text)}
-.web-tabs{display:flex;align-items:stretch;gap:2px;min-width:0;padding:0 10px;border-bottom:1px solid var(--ux-border-soft);background:#0d1627;overflow-x:auto;scrollbar-width:thin}
+.web-tabs{display:flex;align-items:stretch;gap:2px;min-width:0;height:auto;min-height:42px;padding:0 10px;border-bottom:1px solid var(--ux-border-soft);background:#0d1627;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.web-tabs::-webkit-scrollbar{display:none}
 .web-tabs>button{position:relative;display:flex;align-items:center;gap:7px;min-width:max-content;min-height:41px;padding:0 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--ux-muted);font-size:12px}
 .web-tabs>button:hover{background:var(--ux-hover);color:var(--ux-text)}
 .web-tabs>button.active{border-bottom-color:var(--ux-accent);background:var(--ux-accent-soft);color:#dcfce7}
@@ -50,7 +51,7 @@ code,time,.web-kicker{font-family:var(--ux-mono);font-variant-numeric:tabular-nu
 .web-tab-item.active{border-bottom-color:var(--ux-accent);background:var(--ux-accent-soft)}
 .web-tab-main{display:flex;align-items:center;gap:7px;min-height:39px;padding:0 4px 0 12px;border:0;background:transparent;color:var(--ux-muted);font-size:12px}
 .web-tab-item.active .web-tab-main{color:#dcfce7}
-.web-tab-item .web-tab-close{width:26px;height:30px;margin:0 4px 0 0;border:0;background:transparent}
+.web-tab-item .web-tab-close{flex:0 0 18px;width:18px;min-width:18px;height:18px;min-height:18px;margin:0 6px 0 1px;padding:0;border:0;background:transparent;font-size:13px;line-height:1}
 .web-workspace{min-width:0;min-height:0;overflow:hidden;background:var(--ux-bg)}
 .web-panel{display:none;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
 .web-panel.active{display:flex}
@@ -97,5 +98,5 @@ code,time,.web-kicker{font-family:var(--ux-mono);font-variant-numeric:tabular-nu
 @media(max-width:1280px){.agent-root{grid-template-columns:220px minmax(430px,1fr) 300px!important}.transfer-columns,.transfer-list>button{grid-template-columns:minmax(160px,1fr) 86px 136px!important}}
 @media(max-width:980px){.web-login-grid{grid-template-columns:1fr;max-width:620px}.web-login-visual{display:none}.web-login-panel{min-height:620px;border-left:0}.agent-root{grid-template-columns:210px minmax(0,1fr)!important}.agent-context{display:none!important}.transfer-root{grid-template-rows:64px minmax(0,1fr) 210px!important}.transfer-panes{grid-template-columns:minmax(0,1fr)!important;overflow:auto!important}.transfer-bridge{display:none!important}.transfer-pane{min-height:420px!important}.transfer-pane.remote{margin-top:10px}.transfer-head label{margin-left:auto}.transfer-connected{display:none}}
 @media(max-width:720px){.web-header{padding:0 10px}.web-header-brand .web-kicker{display:none}.web-user .web-live{display:none}.web-tabs>button{padding:0 10px}.agent-root{grid-template-columns:1fr!important}.agent-sidebar{display:none!important}.agent-chat>main{padding:22px 16px!important}.agent-chat>footer{padding:0 12px 12px!important}.transfer-head>div{display:none}.transfer-head{gap:10px}.transfer-head label{width:100%}.transfer-head select{flex:1;min-width:0!important}.web-login{padding:16px}.web-login-panel{padding:28px 22px}}
-@media(pointer:coarse){button,.web-tabs>button{min-height:44px}.transfer-list>button{height:44px!important}}
+@media(pointer:coarse){button,.web-tabs>button{min-height:44px}.web-tab-item .web-tab-close{width:24px;min-width:24px;height:24px;min-height:24px}.transfer-list>button{height:44px!important}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
