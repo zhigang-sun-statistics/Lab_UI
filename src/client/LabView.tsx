@@ -5,12 +5,12 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type NodeMouseHandler } from '@xyflow/react'
-import { fetchExperiment, fetchLockLog, fetchLocks, fetchResourceUsage, fetchTopology, startResourceUsage, stopResourceUsage } from './api.ts'
+import { fetchExperiment, fetchLockLog, fetchLocks, fetchTopology } from './api.ts'
 import { CableEdge } from './CableEdge.tsx'
 import { ExperimentView } from './ExperimentView.tsx'
 import { StyleInjector } from './StyleInjector.tsx'
 import { SwitchNode, type FrontPort, type SwitchNodeData } from './SwitchNode.tsx'
-import type { ExperimentResponse, LinkState, LockLogResponse, LocksResponse, ResourceUsageResponse, SwitchState, TopologyResponse } from '../types.ts'
+import type { ExperimentResponse, LinkState, LockLogResponse, LocksResponse, SwitchState, TopologyResponse } from '../types.ts'
 
 const REFRESH_MS = 45_000
 const EDGE_TYPES = { cable: CableEdge }
@@ -62,7 +62,6 @@ const physicalSlotOf = (alias: string | undefined, name: string, fallbackIndex: 
 const frontPortsOf = (
 	sw: SwitchState,
 	linked: Map<string, { peerLabel?: string }> | undefined,
-	usersByPort: Map<string, string[]> | undefined,
 ): FrontPort[] => {
 	const cages = new Map<number, typeof sw.ports>()
 	sw.ports.forEach((port, index) => {
@@ -87,25 +86,22 @@ const frontPortsOf = (
 			admin: active?.admin,
 			peerLabel: peer,
 			subports: entries.map((port) => port.name),
-			users: usersByPort?.get(portName) ?? [],
 		}
 	})
 }
 
-export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, sshInstanceCounts = {}, currentUsername }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void; onAddSsh?: (switchId: string) => void; sshInstanceCounts?: Record<string, number>; currentUsername?: string }): JSX.Element {
+export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, sshInstanceCounts = {} }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void; onAddSsh?: (switchId: string) => void; sshInstanceCounts?: Record<string, number> }): JSX.Element {
 	const [view, setView] = useState<'physical' | 'experiment'>('physical')
 	const [experiment, setExperiment] = useState<ExperimentResponse>()
 	const [topology, setTopology] = useState<TopologyResponse>(MOCK_TOPOLOGY)
 	const [hydrated, setHydrated] = useState(false)
 	const [locks, setLocks] = useState<LocksResponse | undefined>()
-	const [usage, setUsage] = useState<ResourceUsageResponse>({ fetchedAt: 0, mode: 'shared', usages: [] })
 	const [lockLog, setLockLog] = useState<LockLogResponse | undefined>()
 	const [showLog, setShowLog] = useState(false)
 	const [error, setError] = useState<string>()
 	const [selected, setSelected] = useState<string>()
 	const [selectedPort, setSelectedPort] = useState<string>()
 	const [busy, setBusy] = useState(false)
-	const [usageBusy, setUsageBusy] = useState(false)
 	const alive = useRef(true)
 
 	useEffect(() => {
@@ -116,13 +112,12 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const load = useCallback(async (fresh: boolean): Promise<void> => {
 		setBusy(true)
 		try {
-			const [nextTopology, nextLocks, nextExperiment, nextUsage] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined), currentUsername !== undefined ? fetchResourceUsage() : Promise.resolve(undefined)])
+			const [nextTopology, nextLocks, nextExperiment] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined)])
 			if (!alive.current) return
 			// Commit one complete snapshot: panels stay on mock data until port
 			// state, LLDP links and locks have all finished collecting.
 			setTopology(nextTopology)
 			setLocks(nextLocks)
-			if (nextUsage !== undefined) setUsage(nextUsage)
 			if (nextExperiment !== undefined) setExperiment(nextExperiment)
 			setHydrated(true)
 			setError(undefined)
@@ -132,7 +127,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 		} finally {
 			if (alive.current) setBusy(false)
 		}
-	}, [showExperiment, currentUsername])
+	}, [showExperiment])
 
 	useEffect(() => {
 		if (!visible) return
@@ -140,12 +135,6 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 		const timer = setInterval(() => { void load(false) }, REFRESH_MS)
 		return () => { clearInterval(timer) }
 	}, [visible, load])
-
-	useEffect(() => {
-		if (!visible || currentUsername === undefined) return
-		const timer = setInterval(() => { void fetchResourceUsage().then(setUsage).catch(() => undefined) }, 15_000)
-		return () => { clearInterval(timer) }
-	}, [visible, currentUsername])
 
 	const loadLog = useCallback(async (): Promise<void> => {
 		setShowLog(true)
@@ -156,20 +145,6 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 		const orderOf = new Map(topology.switches.map((sw, index) => [sw.id, index]))
 		const portOper = new Map(topology.switches.flatMap((sw) => sw.ports.map((port) => [sw.id + ':' + port.name, port.oper] as const)))
 		const linkedBySw = new Map<string, Map<string, { peerLabel?: string }>>()
-		const usersBySwitch = new Map<string, Set<string>>()
-		const usersByPort = new Map<string, Map<string, string[]>>()
-		for (const item of usage.usages) {
-			const switchUsers = usersBySwitch.get(item.switchId) ?? new Set<string>()
-			switchUsers.add(item.username)
-			usersBySwitch.set(item.switchId, switchUsers)
-			if (item.portName !== undefined) {
-				const portMap = usersByPort.get(item.switchId) ?? new Map<string, string[]>()
-				const names = portMap.get(item.portName) ?? []
-				if (!names.includes(item.username)) names.push(item.username)
-				portMap.set(item.portName, names)
-				usersByPort.set(item.switchId, portMap)
-			}
-		}
 		const register = (swId: string, port: string, peerLabel: string): void => {
 			const map = linkedBySw.get(swId) ?? new Map()
 			map.set(port, { peerLabel })
@@ -189,8 +164,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 				version: sw.version,
 				selected: selected === sw.id,
 				loading: !hydrated,
-				ports: frontPortsOf(sw, linkedBySw.get(sw.id), usersByPort.get(sw.id)),
-				users: Array.from(usersBySwitch.get(sw.id) ?? []).sort(),
+				ports: frontPortsOf(sw, linkedBySw.get(sw.id)),
 				onPortClick: (port) => { setSelected(sw.id); setSelectedPort(port.port) },
 				onSsh: onOpenSsh === undefined ? undefined : () => onOpenSsh(sw.id),
 				onSshAdd: onAddSsh !== undefined && (sshInstanceCounts[sw.id] ?? 0) > 0 ? () => onAddSsh(sw.id) : undefined,
@@ -230,7 +204,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 			}
 		})
 		return { nodes, edges }
-	}, [topology, usage, selected, hydrated, onOpenSsh, onAddSsh, sshInstanceCounts])
+	}, [topology, selected, hydrated, onOpenSsh, onAddSsh, sshInstanceCounts])
 
 	const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => { setSelected(node.id) }, [])
 	const closeDetail = useCallback(() => { setSelected(undefined); setSelectedPort(undefined) }, [])
@@ -238,23 +212,6 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const selectedSw = topology?.switches.find((sw) => sw.id === selected)
 	const selectedLinks = topology?.links.filter((l) => l.a.sw === selected || l.b.sw === selected) ?? []
 	const selectedPortState = selectedSw?.ports.find((port) => port.name === selectedPort)
-	const selectedResourceUsages = selectedSw === undefined ? [] : usage.usages.filter((item) => item.switchId === selectedSw.id && item.portName === (selectedPortState?.name))
-	const currentUsage = currentUsername === undefined ? undefined : selectedResourceUsages.find((item) => item.username === currentUsername)
-	const beginUse = useCallback(async (): Promise<void> => {
-		if (selectedSw === undefined || currentUsername === undefined) return
-		const purpose = window.prompt('使用说明（可选）', '')
-		if (purpose === null) return
-		setUsageBusy(true)
-		try { setUsage(await startResourceUsage({ switchId: selectedSw.id, portName: selectedPortState?.name, purpose })) }
-		catch (usageError) { setError('登记使用失败: ' + String(usageError instanceof Error ? usageError.message : usageError)) }
-		finally { setUsageBusy(false) }
-	}, [selectedSw, selectedPortState, currentUsername])
-	const endUse = useCallback(async (id: string): Promise<void> => {
-		setUsageBusy(true)
-		try { setUsage(await stopResourceUsage(id)) }
-		catch (usageError) { setError('结束使用失败: ' + String(usageError instanceof Error ? usageError.message : usageError)) }
-		finally { setUsageBusy(false) }
-	}, [])
 	const editDescription = useCallback(async (): Promise<void> => {
 		if (selectedSw === undefined || selectedPortState === undefined) return
 		const next = window.prompt('修改端口描述', selectedPortState.description ?? '')
@@ -317,7 +274,6 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 						<p><span className="kv">IP</span><span className="lab-mono">{selectedSw.ip}</span></p>
 						<p><span className="kv">状态</span>{hydrated ? (selectedSw.reachable ? '可达' : <span className="lab-error">不可达: {selectedSw.error}</span>) : '正在采集…'}</p>
 						{selectedSw.version !== undefined && <p className="lab-mono" style={{ fontSize: 11 }}>{selectedSw.version}</p>}
-						{currentUsername !== undefined && <section className="lab-usage-panel"><header><div><small>SHARED RESOURCE</small><strong>{selectedPortState?.name ?? selectedSw.name.toUpperCase()}</strong></div><span>多人共享</span></header><div className="lab-usage-list">{selectedResourceUsages.length === 0 ? <p>当前没有用户登记使用</p> : selectedResourceUsages.map((item) => <article key={item.id}><span className="lab-usage-avatar">{item.username.slice(0, 2).toUpperCase()}</span><div><b>{item.username}</b><small>{item.purpose ?? '未填写使用说明'} · {new Date(item.startedAt).toLocaleString()}</small></div>{item.username === currentUsername && <button className="lab-btn" disabled={usageBusy} onClick={() => void endUse(item.id)}>结束使用</button>}</article>)}</div>{currentUsage === undefined && <button className="lab-usage-start" disabled={usageBusy} onClick={() => void beginUse()}>{usageBusy ? '正在登记…' : selectedPortState === undefined ? '登记使用此交换机' : '登记使用此端口'}</button>}</section>}
 						{selectedPortState !== undefined && <div className="lab-port-focus"><div className="lab-port-focus-head"><div><span className={'lab-port-state ' + (selectedPortState.oper === 'up' ? 'up' : 'down')} /> <strong>{selectedPortState.name}</strong><small>{selectedPortState.alias ?? ''}</small></div><button className="lab-btn" onClick={() => void editDescription()}>修改描述</button></div><div className="lab-port-detail-grid"><p><span className="kv">状态</span><b>{selectedPortState.admin ?? '—'} / {selectedPortState.oper ?? '—'}</b></p><p><span className="kv">速率</span><b>{selectedPortState.speed ?? '—'}</b></p><p><span className="kv">MTU</span><b>{selectedPortState.mtu ?? '—'}</b></p><p><span className="kv">FEC</span><b>{selectedPortState.fec ?? '—'}</b></p><p><span className="kv">模式</span><b>{selectedPortState.vlan ?? '—'}</b></p><p><span className="kv">光模块</span><b>{selectedPortState.type ?? 'N/A'}</b></p></div><p><span className="kv">描述</span>{selectedPortState.description ?? '—'}</p><p><span className="kv">IP 地址</span>{selectedPortState.ipAddresses?.join(', ') ?? '—'}</p><p><span className="kv">LLDP 邻居</span>{selectedPortState.lldpPeer !== undefined ? endpointLabel(selectedPortState.lldpPeer.device, selectedPortState.lldpPeer.port) : '—'}</p><div className="lab-port-traffic"><div><span>RX</span><strong>{selectedPortState.counters?.rxBps ?? '0.00 B/s'}</strong><small>{selectedPortState.counters?.rxPps ?? '0.00/s'} · ERR {selectedPortState.counters?.rxErr ?? '0'} · DROP {selectedPortState.counters?.rxDrop ?? '0'}</small></div><div><span>TX</span><strong>{selectedPortState.counters?.txBps ?? '0.00 B/s'}</strong><small>{selectedPortState.counters?.txPps ?? '0.00/s'} · ERR {selectedPortState.counters?.txErr ?? '0'} · DROP {selectedPortState.counters?.txDrop ?? '0'}</small></div></div></div>}
 						<div className="lab-swdetail-links">
 							{selectedLinks.map((link) => (

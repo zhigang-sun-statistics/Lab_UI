@@ -11,7 +11,6 @@ import { loadExperimentDefinition } from './experiment.ts'
 import { parseSws } from './parser.ts'
 import { addAttachment, addMessage, createJob, generateArtifacts, getProvider, listJobs, loadJob, readArtifact, setProvider } from './agent/service.ts'
 import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, receiveUpload } from './file-transfer/service.ts'
-import { listResourceUsage, startResourceUsage, stopResourceUsage } from './resource-usage/service.ts'
 
 const HOST = process.env.LAB_WEB_HOST ?? '0.0.0.0'
 const PORT = Number(process.env.LAB_WEB_PORT ?? 8889)
@@ -92,17 +91,7 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (attachmentMatch !== null && req.method === 'POST') { const input = await body(req); if (typeof input.name !== 'string' || typeof input.mimeType !== 'string' || typeof input.data !== 'string') { json(res, 400, { error: 'name, mimeType and base64 data are required' }); return true } json(res, 200, await addAttachment(session.username, attachmentMatch[1] ?? '', { name: input.name, mimeType: input.mimeType, data: input.data })); return true }
   const messageMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/messages$/)
   if (messageMatch !== null && req.method === 'POST') { const input = await body(req); json(res, 200, await addMessage(session.username, messageMatch[1] ?? '', typeof input.content === 'string' ? input.content : '', Array.isArray(input.attachmentIds) ? input.attachmentIds.filter((id): id is string => typeof id === 'string') : [])); return true }
-  if (path === '/api/lab/resource-usage' && req.method === 'GET') { json(res, 200, await listResourceUsage()); return true }
   const lab = await labForSession(session)
-  if (path === '/api/lab/resource-usage' && req.method === 'POST') {
-    const input = await body(req)
-    const switchId = typeof input.switchId === 'string' ? input.switchId.trim().toLowerCase() : ''
-    const portName = typeof input.portName === 'string' && input.portName.trim().length > 0 ? input.portName.trim() : undefined
-    if (!lab.switches.some((sw) => sw.id === switchId)) { json(res, 400, { error: 'unknown switch' }); return true }
-    json(res, 201, await startResourceUsage(session.username, { switchId, portName, purpose: typeof input.purpose === 'string' ? input.purpose : undefined })); return true
-  }
-  const usageMatch = path.match(/^\/api\/lab\/resource-usage\/(usage_[a-f0-9-]+)$/)
-  if (usageMatch !== null && req.method === 'DELETE') { json(res, 200, await stopResourceUsage(session.username, usageMatch[1] ?? '')); return true }
   if (path === '/api/files/me/switches' && req.method === 'GET') { json(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return true }
   if (path === '/api/files/me/remote' && req.method === 'GET') { const url = new URL(req.url ?? '/', 'http://localhost'); const switchId = url.searchParams.get('switch') ?? ''; const remotePath = url.searchParams.get('path') ?? '/home/admin'; json(res, 200, await listRemote(lab, switchId, remotePath)); return true }
   if (path === '/api/files/me/remote/directories' && req.method === 'POST') { const input = await body(req); if (typeof input.switchId !== 'string' || typeof input.parent !== 'string' || typeof input.name !== 'string') { json(res, 400, { error: 'switchId, parent and name are required' }); return true } await makeRemoteDirectory(lab, input.switchId, input.parent, input.name); json(res, 200, { ok: true }); return true }

@@ -15,7 +15,6 @@ export interface FrontPort {
 	admin?: string
 	peerLabel?: string
 	subports: string[]
-	users: string[]
 }
 
 export interface SwitchNodeData extends Record<string, unknown> {
@@ -28,7 +27,6 @@ export interface SwitchNodeData extends Record<string, unknown> {
 	selected: boolean
 	loading: boolean
 	ports: FrontPort[]
-	users: string[]
 	onPortClick?: (port: FrontPort) => void
 	onSsh?: () => void
 	onSshAdd?: () => void
@@ -47,7 +45,6 @@ function FacePort({ port, row, onClick }: { port: FrontPort; row: 'top' | 'botto
 		'物理端口 ' + String(port.slot),
 		port.subports.length > 0 ? port.subports.join(', ') : '等待采集',
 		port.peerLabel !== undefined ? '邻居 ' + port.peerLabel : undefined,
-		port.users.length > 0 ? '使用者 ' + port.users.join(', ') : '无人登记使用',
 	].filter(Boolean).join(' · ')
 	return (
 		<div className={'lab-face-port ' + row + ' ' + operClass(port) + (linked ? ' linked' : '')} title={title} onClick={() => onClick?.(port)} onContextMenu={(event) => { event.preventDefault(); onClick?.(port) }} role={onClick === undefined ? undefined : 'button'} tabIndex={onClick === undefined ? undefined : 0}>
@@ -55,7 +52,6 @@ function FacePort({ port, row, onClick }: { port: FrontPort; row: 'top' | 'botto
 			<div className="lab-face-cage">
 				<span className="lab-face-cage-core" />
 				<span className="lab-face-led" />
-				{port.users.length > 0 && <span className="lab-face-users" title={'当前使用者: ' + port.users.join(', ')}>{port.users.length}</span>}
 				<Handle type="target" position={Position.Top} id={port.port + ':target'} className="lab-face-rf-handle center" isConnectable={false} />
 				<Handle type="source" position={Position.Bottom} id={port.port + ':source'} className="lab-face-rf-handle center" isConnectable={false} />
 			</div>
@@ -77,7 +73,6 @@ export function SwitchNode({ data }: NodeProps): JSX.Element {
 				{sw.onSshAdd !== undefined && <button className="lab-ssh-add" title={'再打开一个 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); sw.onSshAdd?.() }} aria-label={'新增 ' + sw.name + ' SSH 终端'}>+</button>}
 				<span className="lab-sw-group">{'G-' + sw.group}</span>
 				<span className="lab-device-ip">{sw.ip}</span>
-				{sw.users.length > 0 && <span className="lab-device-users" title={'当前使用者: ' + sw.users.join(', ')}>使用: {sw.users.join(', ')}</span>}
 				<span className="lab-device-port-summary">{sw.loading ? 'SYNCING…' : sw.ports.filter((p) => p.oper === 'up').length + '/32 UP'}</span>
 			</div>
 			<div className="lab-chassis">
