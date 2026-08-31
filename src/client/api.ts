@@ -2,7 +2,7 @@
  * Same-origin fetch helpers for /api/lab/*. The host routes carry the
  * browser trust fence; the client just never issues anything but GETs.
  */
-import type { ExperimentResponse, LockLogResponse, LocksResponse, TopologyResponse } from '../types.ts'
+import type { ActualUsageResponse, ExperimentResponse, LockLogResponse, LocksResponse, TopologyResponse } from '../types.ts'
 
 async function getJson<T>(path: string): Promise<T> {
 	const response = await fetch(path, { headers: { accept: 'application/json' } })
@@ -21,3 +21,5 @@ export const fetchTopology = (fresh = false): Promise<TopologyResponse> =>
 export const fetchLocks = (): Promise<LocksResponse> => getJson<LocksResponse>('/api/lab/locks')
 
 export const fetchLockLog = (): Promise<LockLogResponse> => getJson<LockLogResponse>('/api/lab/locklog')
+
+export const fetchActualUsage = (): Promise<ActualUsageResponse> => getJson<ActualUsageResponse>('/api/lab/actual-usage')

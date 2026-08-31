@@ -5,12 +5,12 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type NodeMouseHandler } from '@xyflow/react'
-import { fetchExperiment, fetchLockLog, fetchLocks, fetchTopology } from './api.ts'
+import { fetchActualUsage, fetchExperiment, fetchLockLog, fetchLocks, fetchTopology } from './api.ts'
 import { CableEdge } from './CableEdge.tsx'
 import { ExperimentView } from './ExperimentView.tsx'
 import { StyleInjector } from './StyleInjector.tsx'
 import { SwitchNode, type FrontPort, type SwitchNodeData } from './SwitchNode.tsx'
-import type { ExperimentResponse, LinkState, LockLogResponse, LocksResponse, SwitchState, TopologyResponse } from '../types.ts'
+import type { ActualUsageResponse, ExperimentResponse, LinkState, LockLogResponse, LocksResponse, SwitchState, TopologyResponse } from '../types.ts'
 
 const REFRESH_MS = 45_000
 const EDGE_TYPES = { cable: CableEdge }
@@ -90,12 +90,13 @@ const frontPortsOf = (
 	})
 }
 
-export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, sshInstanceCounts = {} }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void; onAddSsh?: (switchId: string) => void; sshInstanceCounts?: Record<string, number> }): JSX.Element {
+export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, sshInstanceCounts = {}, currentUsername }: { visible: boolean; showExperiment?: boolean; onOpenSsh?: (switchId: string) => void; onAddSsh?: (switchId: string) => void; sshInstanceCounts?: Record<string, number>; currentUsername?: string }): JSX.Element {
 	const [view, setView] = useState<'physical' | 'experiment'>('physical')
 	const [experiment, setExperiment] = useState<ExperimentResponse>()
 	const [topology, setTopology] = useState<TopologyResponse>(MOCK_TOPOLOGY)
 	const [hydrated, setHydrated] = useState(false)
 	const [locks, setLocks] = useState<LocksResponse | undefined>()
+	const [actualUsage, setActualUsage] = useState<ActualUsageResponse>({ fetchedAt: 0, switches: {} })
 	const [lockLog, setLockLog] = useState<LockLogResponse | undefined>()
 	const [showLog, setShowLog] = useState(false)
 	const [error, setError] = useState<string>()
@@ -112,12 +113,13 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const load = useCallback(async (fresh: boolean): Promise<void> => {
 		setBusy(true)
 		try {
-			const [nextTopology, nextLocks, nextExperiment] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined)])
+			const [nextTopology, nextLocks, nextExperiment, nextActualUsage] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined), currentUsername !== undefined ? fetchActualUsage() : Promise.resolve(undefined)])
 			if (!alive.current) return
 			// Commit one complete snapshot: panels stay on mock data until port
 			// state, LLDP links and locks have all finished collecting.
 			setTopology(nextTopology)
 			setLocks(nextLocks)
+			if (nextActualUsage !== undefined) setActualUsage(nextActualUsage)
 			if (nextExperiment !== undefined) setExperiment(nextExperiment)
 			setHydrated(true)
 			setError(undefined)
@@ -127,7 +129,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 		} finally {
 			if (alive.current) setBusy(false)
 		}
-	}, [showExperiment])
+	}, [showExperiment, currentUsername])
 
 	useEffect(() => {
 		if (!visible) return
@@ -135,6 +137,12 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 		const timer = setInterval(() => { void load(false) }, REFRESH_MS)
 		return () => { clearInterval(timer) }
 	}, [visible, load])
+
+	useEffect(() => {
+		if (!visible || currentUsername === undefined) return
+		const timer = setInterval(() => { void fetchActualUsage().then(setActualUsage).catch(() => undefined) }, 10_000)
+		return () => { clearInterval(timer) }
+	}, [visible, currentUsername])
 
 	const loadLog = useCallback(async (): Promise<void> => {
 		setShowLog(true)
@@ -165,6 +173,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 				selected: selected === sw.id,
 				loading: !hydrated,
 				ports: frontPortsOf(sw, linkedBySw.get(sw.id)),
+				actualUsers: actualUsage.switches[sw.id] ?? [],
 				onPortClick: (port) => { setSelected(sw.id); setSelectedPort(port.port) },
 				onSsh: onOpenSsh === undefined ? undefined : () => onOpenSsh(sw.id),
 				onSshAdd: onAddSsh !== undefined && (sshInstanceCounts[sw.id] ?? 0) > 0 ? () => onAddSsh(sw.id) : undefined,
@@ -204,7 +213,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 			}
 		})
 		return { nodes, edges }
-	}, [topology, selected, hydrated, onOpenSsh, onAddSsh, sshInstanceCounts])
+	}, [topology, actualUsage, selected, hydrated, onOpenSsh, onAddSsh, sshInstanceCounts])
 
 	const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => { setSelected(node.id) }, [])
 	const closeDetail = useCallback(() => { setSelected(undefined); setSelectedPort(undefined) }, [])
@@ -212,6 +221,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const selectedSw = topology?.switches.find((sw) => sw.id === selected)
 	const selectedLinks = topology?.links.filter((l) => l.a.sw === selected || l.b.sw === selected) ?? []
 	const selectedPortState = selectedSw?.ports.find((port) => port.name === selectedPort)
+	const selectedActualUsers = selectedSw === undefined ? [] : actualUsage.switches[selectedSw.id] ?? []
 	const editDescription = useCallback(async (): Promise<void> => {
 		if (selectedSw === undefined || selectedPortState === undefined) return
 		const next = window.prompt('修改端口描述', selectedPortState.description ?? '')
@@ -274,6 +284,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 						<p><span className="kv">IP</span><span className="lab-mono">{selectedSw.ip}</span></p>
 						<p><span className="kv">状态</span>{hydrated ? (selectedSw.reachable ? '可达' : <span className="lab-error">不可达: {selectedSw.error}</span>) : '正在采集…'}</p>
 						{selectedSw.version !== undefined && <p className="lab-mono" style={{ fontSize: 11 }}>{selectedSw.version}</p>}
+						<section className="lab-actual-usage" aria-label="交换机当前实际使用者"><header><div><small>LIVE USAGE</small><strong>当前实际使用者</strong></div><span>{selectedActualUsers.reduce((sum, item) => sum + item.sessionCount, 0)} 个会话</span></header>{selectedActualUsers.length === 0 ? <p className="lab-actual-empty">当前未采集到活动会话</p> : <div className="lab-actual-list">{selectedActualUsers.map((item) => <article key={item.source + ':' + item.username + ':' + (item.clientIp ?? '')}><span className="lab-actual-avatar">{item.username.slice(0, 2).toUpperCase()}</span><div><b>{item.username}</b><small>{item.source === 'lab-ssh' ? 'Lab_UI SSH' : 'centec-swkit'} · {item.sessionCount} 个会话{item.clientIp !== undefined ? ' · ' + item.clientIp : ''}</small></div><span className="lab-actual-live"><i />在线</span></article>)}</div>}<footer>数据来自活动 SSH 会话和跳板机 swkit 锁文件，不是人工预约。</footer></section>
 						{selectedPortState !== undefined && <div className="lab-port-focus"><div className="lab-port-focus-head"><div><span className={'lab-port-state ' + (selectedPortState.oper === 'up' ? 'up' : 'down')} /> <strong>{selectedPortState.name}</strong><small>{selectedPortState.alias ?? ''}</small></div><button className="lab-btn" onClick={() => void editDescription()}>修改描述</button></div><div className="lab-port-detail-grid"><p><span className="kv">状态</span><b>{selectedPortState.admin ?? '—'} / {selectedPortState.oper ?? '—'}</b></p><p><span className="kv">速率</span><b>{selectedPortState.speed ?? '—'}</b></p><p><span className="kv">MTU</span><b>{selectedPortState.mtu ?? '—'}</b></p><p><span className="kv">FEC</span><b>{selectedPortState.fec ?? '—'}</b></p><p><span className="kv">模式</span><b>{selectedPortState.vlan ?? '—'}</b></p><p><span className="kv">光模块</span><b>{selectedPortState.type ?? 'N/A'}</b></p></div><p><span className="kv">描述</span>{selectedPortState.description ?? '—'}</p><p><span className="kv">IP 地址</span>{selectedPortState.ipAddresses?.join(', ') ?? '—'}</p><p><span className="kv">LLDP 邻居</span>{selectedPortState.lldpPeer !== undefined ? endpointLabel(selectedPortState.lldpPeer.device, selectedPortState.lldpPeer.port) : '—'}</p><div className="lab-port-traffic"><div><span>RX</span><strong>{selectedPortState.counters?.rxBps ?? '0.00 B/s'}</strong><small>{selectedPortState.counters?.rxPps ?? '0.00/s'} · ERR {selectedPortState.counters?.rxErr ?? '0'} · DROP {selectedPortState.counters?.rxDrop ?? '0'}</small></div><div><span>TX</span><strong>{selectedPortState.counters?.txBps ?? '0.00 B/s'}</strong><small>{selectedPortState.counters?.txPps ?? '0.00/s'} · ERR {selectedPortState.counters?.txErr ?? '0'} · DROP {selectedPortState.counters?.txDrop ?? '0'}</small></div></div></div>}
 						<div className="lab-swdetail-links">
 							{selectedLinks.map((link) => (

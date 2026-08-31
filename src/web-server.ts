@@ -8,7 +8,8 @@ import { loadLabConfig } from './config.ts'
 import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription, verifyJumpHost } from './collector.ts'
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
-import { parseSws } from './parser.ts'
+import { parseSwkitLockUsers, parseSws } from './parser.ts'
+import type { ActualSwitchUser, ActualUsageResponse } from './types.ts'
 import { addAttachment, addMessage, createJob, generateArtifacts, getProvider, listJobs, loadJob, readArtifact, setProvider } from './agent/service.ts'
 import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, receiveUpload } from './file-transfer/service.ts'
 
@@ -19,6 +20,8 @@ const ALLOWED_USERS = new Set(['wsy', 'lfx', 'fjj', 'yyh', 'zyh', 'szg', 'dj', '
 const JUMP_HOST = '192.168.210.244'
 interface WebSession { at: number; username: string; password: string }
 const sessions = new Map<string, WebSession>()
+interface ActiveSshSession { id: string; username: string; switchId: string; startedAt: number }
+const activeSshSessions = new Map<string, ActiveSshSession>()
 const TTL = 8 * 60 * 60 * 1000
 let collectionCache: { at: number; value: Awaited<ReturnType<typeof collect>> } | undefined
 let collectionInflight: ReturnType<typeof collect> | undefined
@@ -27,6 +30,31 @@ const getCollection = async (lab: Awaited<ReturnType<typeof loadLabConfig>>, fre
   if (!fresh && collectionCache !== undefined && Date.now() - collectionCache.at < 15000) return collectionCache.value
   collectionInflight ??= collect(lab, 15000).then((value) => { collectionCache = { at: Date.now(), value }; return value }).finally(() => { collectionInflight = undefined })
   return await collectionInflight
+}
+
+const getActualUsage = async (lab: Awaited<ReturnType<typeof loadLabConfig>>): Promise<ActualUsageResponse> => {
+  const bySwitch: Record<string, ActualSwitchUser[]> = Object.fromEntries(lab.switches.map((sw) => [sw.id, []]))
+  const merge = (item: ActualSwitchUser): void => {
+    const list = bySwitch[item.switchId]
+    if (list === undefined) return
+    const existing = list.find((entry) => entry.username === item.username && entry.source === item.source && entry.clientIp === item.clientIp)
+    if (existing !== undefined) { existing.sessionCount += item.sessionCount; if (item.startedAt !== undefined && (existing.startedAt === undefined || item.startedAt < existing.startedAt)) existing.startedAt = item.startedAt; return }
+    list.push(item)
+  }
+  for (const session of activeSshSessions.values()) merge({ username: session.username, switchId: session.switchId, source: 'lab-ssh', sessionCount: 1, startedAt: session.startedAt })
+  const collected = await getCollection(lab)
+  for (const lock of parseSwkitLockUsers(collected.lockUsers.raw)) {
+    // Lock content is `epoch|client_ip|target` where target is a switch name
+    // (sw1 / Switch-2), a legacy group letter (A/B), or absent = whole lab.
+    const name = lock.switchName?.trim() ?? ''
+    const number = name.match(/(?:switch\s*-?|sw\s*)(\d+)/i)?.[1]
+    const switchIds = number !== undefined ? ['sw' + number]
+      : /^[ab]$/i.test(name) ? lab.switches.filter((sw) => sw.group.toUpperCase() === name.toUpperCase()).map((sw) => sw.id)
+      : lab.switches.map((sw) => sw.id)
+    for (const switchId of switchIds) merge({ username: lock.username, switchId, source: 'swkit-lock', sessionCount: 1, startedAt: lock.startedAt, clientIp: lock.clientIp })
+  }
+  for (const list of Object.values(bySwitch)) list.sort((a, b) => a.username.localeCompare(b.username) || a.source.localeCompare(b.source))
+  return { fetchedAt: Date.now(), switches: bySwitch }
 }
 
 const json = (res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void => {
@@ -92,6 +120,7 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   const messageMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/messages$/)
   if (messageMatch !== null && req.method === 'POST') { const input = await body(req); json(res, 200, await addMessage(session.username, messageMatch[1] ?? '', typeof input.content === 'string' ? input.content : '', Array.isArray(input.attachmentIds) ? input.attachmentIds.filter((id): id is string => typeof id === 'string') : [])); return true }
   const lab = await labForSession(session)
+  if (path === '/api/lab/actual-usage' && req.method === 'GET') { json(res, 200, await getActualUsage(lab)); return true }
   if (path === '/api/files/me/switches' && req.method === 'GET') { json(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return true }
   if (path === '/api/files/me/remote' && req.method === 'GET') { const url = new URL(req.url ?? '/', 'http://localhost'); const switchId = url.searchParams.get('switch') ?? ''; const remotePath = url.searchParams.get('path') ?? '/home/admin'; json(res, 200, await listRemote(lab, switchId, remotePath)); return true }
   if (path === '/api/files/me/remote/directories' && req.method === 'POST') { const input = await body(req); if (typeof input.switchId !== 'string' || typeof input.parent !== 'string' || typeof input.name !== 'string') { json(res, 400, { error: 'switchId, parent and name are required' }); return true } await makeRemoteDirectory(lab, input.switchId, input.parent, input.name); json(res, 200, { ok: true }); return true }
@@ -153,8 +182,11 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     const switchId = url.searchParams.get('switch') ?? ''
     void labForSession(session).then((lab) => openInteractiveShell(lab, switchId, 120, 34, (data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() })).then((shell) => {
+      const usageId = randomBytes(16).toString('hex')
+      activeSshSessions.set(usageId, { id: usageId, username: session.username, switchId, startedAt: Date.now() })
+      if (ws.readyState !== ws.OPEN) { activeSshSessions.delete(usageId); shell.close() }
       ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') shell.write(message.data); if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
-      ws.on('close', () => shell.close())
+      ws.on('close', () => { activeSshSessions.delete(usageId); shell.close() })
     }).catch((error) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
   })
 })

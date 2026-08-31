@@ -66,6 +66,22 @@ export interface TopologyResponse {
 	links: LinkState[]
 }
 
+/** A currently observed user of a switch from a live SSH session or swkit lock file. */
+export interface ActualSwitchUser {
+	username: string
+	switchId: string
+	source: 'lab-ssh' | 'swkit-lock'
+	sessionCount: number
+	startedAt?: number
+	clientIp?: string
+}
+
+/** Current real switch usage; this is observed state, not a reservation. */
+export interface ActualUsageResponse {
+	fetchedAt: number
+	switches: Record<string, ActualSwitchUser[]>
+}
+
 /** One lock group (A/B) parsed from the jumphost `sws` output. */
 export interface LockGroup {
 	group: string

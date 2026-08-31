@@ -81,6 +81,7 @@ export async function verifyJumpHost(host: string, port: number, username: strin
 export const JUMP_CMD = {
 	sws: 'sws',
 	locklog: 'swl | tail -30',
+	lockUsers: 'for f in /c/ProgramData/switch_lock/locks/*.lock; do [ -f "$f" ] || continue; owner=$(stat -c "%U" "$f" 2>/dev/null || echo unknown); printf "%s\t%s\t" "$(basename "$f")" "$owner"; tr -d "\r\n" < "$f"; printf "\n"; done',
 } as const
 
 /** The only switch commands this plugin may run (read-only show). */
@@ -104,6 +105,7 @@ export interface SwitchProbe {
 
 export interface CollectOutput {
 	locks: { raw: string; error?: string }
+	lockUsers: { raw: string; error?: string }
 	switches: Map<string, { probe?: SwitchProbe; error?: string }>
 }
 
@@ -123,6 +125,9 @@ export async function collect(lab: LabConfig, timeoutMs: number): Promise<Collec
 	})
 	try {
 		const locks = await execOnClient(jump, JUMP_CMD.sws, timeoutMs)
+			.then((result) => ({ raw: result.out + (result.err.length > 0 ? '\n' + result.err : '') }))
+			.catch((error: unknown) => ({ raw: '', error: String(error instanceof Error ? error.message : error) }))
+		const lockUsers = await execOnClient(jump, JUMP_CMD.lockUsers, timeoutMs)
 			.then((result) => ({ raw: result.out + (result.err.length > 0 ? '\n' + result.err : '') }))
 			.catch((error: unknown) => ({ raw: '', error: String(error instanceof Error ? error.message : error) }))
 		const switches = new Map<string, { probe?: SwitchProbe; error?: string }>()
@@ -167,7 +172,7 @@ export async function collect(lab: LabConfig, timeoutMs: number): Promise<Collec
 				switches.set(sw.id, { error: 'probe failed (ssh channel or exec error)' })
 			}
 		}
-		return { locks, switches }
+		return { locks, lockUsers, switches }
 	} finally {
 		jump.end()
 	}

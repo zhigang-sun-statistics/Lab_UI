@@ -27,6 +27,7 @@ export interface SwitchNodeData extends Record<string, unknown> {
 	selected: boolean
 	loading: boolean
 	ports: FrontPort[]
+	actualUsers: { username: string; source: 'lab-ssh' | 'swkit-lock'; sessionCount: number }[]
 	onPortClick?: (port: FrontPort) => void
 	onSsh?: () => void
 	onSshAdd?: () => void
@@ -73,6 +74,7 @@ export function SwitchNode({ data }: NodeProps): JSX.Element {
 				{sw.onSshAdd !== undefined && <button className="lab-ssh-add" title={'再打开一个 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); sw.onSshAdd?.() }} aria-label={'新增 ' + sw.name + ' SSH 终端'}>+</button>}
 				<span className="lab-sw-group">{'G-' + sw.group}</span>
 				<span className="lab-device-ip">{sw.ip}</span>
+				{sw.actualUsers.length > 0 && <span className="lab-device-actual-users" title={sw.actualUsers.map((item) => item.username + ' (' + item.sessionCount + ')').join(', ')}>使用: {Array.from(new Set(sw.actualUsers.map((item) => item.username))).join(', ')}</span>}
 				<span className="lab-device-port-summary">{sw.loading ? 'SYNCING…' : sw.ports.filter((p) => p.oper === 'up').length + '/32 UP'}</span>
 			</div>
 			<div className="lab-chassis">

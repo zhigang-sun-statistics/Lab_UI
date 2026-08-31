@@ -3,3 +3,5 @@ lib/
 *.tsbuildinfo
 data/
 local-preview.*.log
+centec-swkit/
+centec-swkit.tar.gz

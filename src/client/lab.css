@@ -167,3 +167,25 @@
 .exp-port-note.align-center { margin-left:-105px; text-align:center; }
 .exp-port-note.align-right { margin-left:-210px; text-align:right; }
 @media (prefers-reduced-motion:reduce) { .exp-engineering-line { transition:none!important; } }
+
+/* Read-only actual usage from live SSH sessions and centec-swkit. */
+.lab-device-actual-users { max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:8px; padding:1px 6px; border:1px solid rgba(34,197,94,.38); border-radius:4px; color:#86efac; background:rgba(34,197,94,.1); font:9px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.lab-actual-usage { margin:12px 0; overflow:hidden; border:1px solid #3b4b5d; border-radius:7px; background:#121922; }
+.lab-actual-usage>header { display:flex; align-items:center; gap:10px; padding:10px 11px; border-bottom:1px solid #2d3946; background:#17212c; }
+.lab-actual-usage>header>div { min-width:0; flex:1; }
+.lab-actual-usage>header small,.lab-actual-usage>header strong { display:block; }
+.lab-actual-usage>header small { color:#70ddb0; font:700 9px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.08em; }
+.lab-actual-usage>header strong { margin-top:3px; font-size:12px; }
+.lab-actual-usage>header>span { padding:2px 7px; border:1px solid rgba(34,197,94,.35); border-radius:9px; color:#86efac; background:rgba(34,197,94,.1); font-size:10px; white-space:nowrap; }
+.lab-actual-empty { margin:0; padding:13px 11px; color:#8d9baa; font-size:11px; }
+.lab-actual-list { padding:5px 8px; }
+.lab-actual-list article { display:flex; align-items:center; gap:8px; min-height:42px; padding:6px 3px; border-bottom:1px solid #26313d; }
+.lab-actual-list article:last-child { border-bottom:0; }
+.lab-actual-avatar { display:grid; place-items:center; width:26px; height:26px; flex:none; border:1px solid #42634f; border-radius:5px; color:#9aebbd; background:#173124; font:700 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.lab-actual-list article>div { min-width:0; flex:1; }
+.lab-actual-list article b,.lab-actual-list article small { display:block; }
+.lab-actual-list article b { font-size:11px; }
+.lab-actual-list article small { margin-top:2px; overflow:hidden; color:#8d9baa; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.lab-actual-live { display:inline-flex; align-items:center; gap:4px; color:#86efac; font-size:10px; }
+.lab-actual-live i { width:6px; height:6px; border-radius:50%; background:#22c55e; box-shadow:0 0 5px rgba(34,197,94,.8); }
+.lab-actual-usage>footer { padding:7px 11px; border-top:1px solid #2d3946; color:#748394; font-size:9px; line-height:1.45; }

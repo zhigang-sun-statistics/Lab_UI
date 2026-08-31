@@ -223,6 +223,21 @@ export interface LockGroupRaw {
  * 'unknown' with the raw line preserved. When the banner announces shared
  * mode (no locking), an empty result is expected.
  */
+export interface SwkitLockUser { lockFile: string; username: string; clientIp?: string; switchName?: string; startedAt?: number }
+
+/** Parse fixed TSV emitted by the read-only swkit lock-file collector. */
+export function parseSwkitLockUsers(text: string): SwkitLockUser[] {
+	const result: SwkitLockUser[] = []
+	for (const line of stripAnsi(text).split(/\r?\n/)) {
+		const [lockFile, owner, content] = line.split('\t')
+		if (lockFile === undefined || owner === undefined || content === undefined || !lockFile.endsWith('.lock')) continue
+		const [epoch, clientIp, switchName] = content.trim().split('|')
+		const epochNumber = Number(epoch)
+		result.push({ lockFile, username: owner.trim() || 'unknown', clientIp: clientIp?.trim() || undefined, switchName: switchName?.trim() || undefined, startedAt: Number.isFinite(epochNumber) && epochNumber > 0 ? epochNumber * 1000 : undefined })
+	}
+	return result
+}
+
 export function parseSws(text: string): LockGroupRaw[] {
 	const groups: LockGroupRaw[] = []
 	for (const line of stripAnsi(text).split(/\r?\n/)) {
