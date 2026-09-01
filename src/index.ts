@@ -16,7 +16,7 @@
 import { loadLabConfig, type LabConfig, type LabPluginConfig } from './config.ts'
 import { collect, collectLockLog, setInterfaceDescription } from './collector.ts'
 import { loadExperimentDefinition } from './experiment.ts'
-import { buildTopology } from './topology.ts'
+import { buildTopology, type DeclaredLink } from './topology.ts'
 import { parseSws } from './parser.ts'
 import type { Context, LabHttpRequest, LabHttpResponse } from './context-types.ts'
 import type { LockLogResponse, LocksResponse, TopologyResponse } from './types.ts'
@@ -94,12 +94,21 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 	let latestCollection: { at: number; value: Awaited<ReturnType<typeof collect>> } | undefined
 	let inflightLocks: Promise<LocksResponse> | undefined
 
+	const declaredFromExperiment = async (): Promise<DeclaredLink[]> => {
+		const cfg = await lab()
+		const definition = (await experiment()).definition
+		return definition.links
+			.filter((link) => link.from.interface !== undefined && link.to.interface !== undefined)
+			.filter((link) => cfg.switches.some((sw) => sw.id === link.from.node || sw.name === link.from.node) && cfg.switches.some((sw) => sw.id === link.to.node || sw.name === link.to.node))
+			.map((link) => ({ a: { sw: link.from.node, port: link.from.interface ?? '' }, b: { sw: link.to.node, port: link.to.interface ?? '' }, note: [link.bundle, link.speed].filter((part) => part !== undefined).join(' ') }))
+	}
+
 	const fetchTopology = async (): Promise<TopologyResponse> => {
 		const cfg = await lab()
 		const started = Date.now()
-		const collected = await collect(cfg, timeoutMs)
+		const [collected, declared] = await Promise.all([collect(cfg, timeoutMs), declaredFromExperiment().catch(() => [])])
 		latestCollection = { at: Date.now(), value: collected }
-		const { switches, links } = buildTopology(cfg, collected)
+		const { switches, links } = buildTopology(cfg, collected, declared)
 		return { fetchedAt: Date.now(), durationMs: Date.now() - started, cached: false, switches, links }
 	}
 

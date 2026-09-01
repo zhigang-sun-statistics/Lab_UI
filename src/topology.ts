@@ -30,7 +30,14 @@ const canonicalPort = (port: string): string => {
 	return slot === undefined ? port : 'Ethernet' + String(slot)
 }
 
-export function buildTopology(lab: LabConfig, collected: CollectOutput): { switches: SwitchState[]; links: LinkState[] } {
+/** A declared cable from experiment.yml (or lab.json): intent, dashed until LLDP confirms it. */
+export interface DeclaredLink {
+	a: { sw: string; port: string }
+	b: { sw: string; port: string }
+	note?: string
+}
+
+export function buildTopology(lab: LabConfig, collected: CollectOutput, declared: DeclaredLink[] = []): { switches: SwitchState[]; links: LinkState[] } {
 	const byNameOrId = new Map<string, string>()
 	for (const sw of lab.switches) {
 		byNameOrId.set(sw.name, sw.id)
@@ -118,7 +125,17 @@ export function buildTopology(lab: LabConfig, collected: CollectOutput): { switc
 		}
 	}
 	const links = new Map<string, LinkState>(lldpLinks)
-	for (const link of lab.links) {
+	// Merge declared cabling: lab.json links plus the experiment.yml intent
+	// (Ag100/Ag200 bundles). Unknown switch names or ports that name no lab
+	// switch are skipped; an LLDP-confirmed declaration becomes 'both'.
+	const declaredLinks: DeclaredLink[] = [...lab.links]
+	for (const link of declared) {
+		const aSw = byNameOrId.get(link.a.sw)
+		const bSw = byNameOrId.get(link.b.sw)
+		if (aSw === undefined || bSw === undefined) continue
+		declaredLinks.push({ a: { sw: aSw, port: link.a.port }, b: { sw: bSw, port: link.b.port }, note: link.note })
+	}
+	for (const link of declaredLinks) {
 		const key = linkKey(link.a, link.b)
 		const existing = links.get(key)
 		if (existing !== undefined) {
