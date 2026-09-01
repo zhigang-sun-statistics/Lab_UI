@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { LabView } from './LabView.tsx'
+import { StyleInjector } from './StyleInjector.tsx'
 import { FileTransferView } from '../web/file-transfer/FileTransferView.tsx'
 import { SshTerminal, type SshConnectionState } from '../ssh/SshTerminal.tsx'
 import './device-management.css'
@@ -20,6 +21,7 @@ export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Ele
 	const openSsh = useCallback((switchId: string): void => { const existing = sshTabs.find((tab) => tab.switchId === switchId); if (existing !== undefined) setActiveTab(existing.id); else addSsh(switchId) }, [sshTabs, addSsh])
 	const closeSsh = useCallback((id: string): void => { setSshTabs((tabs) => { const index = tabs.findIndex((tab) => tab.id === id); const next = tabs.filter((tab) => tab.id !== id); if (activeTab === id) setActiveTab(next[Math.max(0, index - 1)]?.id ?? 'topology'); return next }); setSshStatus((old) => { const next = { ...old }; delete next[id]; return next }) }, [activeTab])
 	return <div className="dm-root">
+		<StyleInjector />
 		<nav className="dm-tabs" aria-label="设备管理工作区">
 			<button className={activeTab === 'topology' ? 'active' : ''} onClick={() => setActiveTab('topology')}><Icon kind="topology"/>物理拓扑</button>
 			<button className={activeTab === 'files' ? 'active' : ''} onClick={() => setActiveTab('files')}><Icon kind="files"/>文件传输</button>
