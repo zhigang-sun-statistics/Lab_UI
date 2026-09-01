@@ -113,7 +113,10 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const load = useCallback(async (fresh: boolean): Promise<void> => {
 		setBusy(true)
 		try {
-			const [nextTopology, nextLocks, nextExperiment, nextActualUsage] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined), currentUsername !== undefined ? fetchActualUsage() : Promise.resolve(undefined)])
+			// Actual usage is an optional enhancement: never let its failure
+			// (e.g. a backend without the route) abort the topology snapshot.
+			const actualUsageTask = currentUsername === undefined ? Promise.resolve(undefined) : fetchActualUsage().catch(() => undefined)
+			const [nextTopology, nextLocks, nextExperiment, nextActualUsage] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined), actualUsageTask])
 			if (!alive.current) return
 			// Commit one complete snapshot: panels stay on mock data until port
 			// state, LLDP links and locks have all finished collecting.
