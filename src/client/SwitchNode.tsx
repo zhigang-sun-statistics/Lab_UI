@@ -41,11 +41,13 @@ const operClass = (port: FrontPort): string => {
 
 function FacePort({ port, row, onClick }: { port: FrontPort; row: 'top' | 'bottom'; onClick?: (port: FrontPort) => void }): JSX.Element {
 	const linked = port.peerLabel !== undefined && port.peerLabel.length > 0
+	const upWithoutPeer = port.oper === 'up' && (port.peerLabel === undefined || port.peerLabel.length === 0)
 	const title = [
 		port.displayName,
 		'物理端口 ' + String(port.slot),
 		port.subports.length > 0 ? port.subports.join(', ') : '等待采集',
 		port.peerLabel !== undefined ? '邻居 ' + port.peerLabel : undefined,
+		upWithoutPeer ? '链路已连接 · 对端未上报 LLDP' : undefined,
 	].filter(Boolean).join(' · ')
 	return (
 		<div className={'lab-face-port ' + row + ' ' + operClass(port) + (linked ? ' linked' : '')} title={title} onClick={() => onClick?.(port)} onContextMenu={(event) => { event.preventDefault(); onClick?.(port) }} role={onClick === undefined ? undefined : 'button'} tabIndex={onClick === undefined ? undefined : 0}>
