@@ -195,13 +195,17 @@ export interface InteractiveShell { write(data: string): void; resize(cols: numb
 
 /** Open an interactive switch shell over the configured jump host. */
 export async function openInteractiveShell(lab: LabConfig, switchId: string, cols: number, rows: number, onData: (data: string) => void, onClose: (message?: string) => void): Promise<InteractiveShell> {
+	// Long-lived interactive session: without keepalives an idle terminal
+	// sends zero bytes, and the jump host sshd (or a NAT in between) reaps
+	// the connection after a few minutes of silence.
+	const keepalive = { keepaliveInterval: 15_000, keepaliveCountMax: 10 }
 	const sw = lab.switches.find((item) => item.id === switchId)
 	if (sw === undefined) throw new Error('unknown switch')
-	const jump = await connectClient({ host: lab.jumphost.host, port: lab.jumphost.port ?? 22, username: lab.jumphost.username, password: lab.jumphost.password, readyTimeout: 12000 })
+	const jump = await connectClient({ host: lab.jumphost.host, port: lab.jumphost.port ?? 22, username: lab.jumphost.username, password: lab.jumphost.password, readyTimeout: 12000, ...keepalive })
 	let target: Client | undefined
 	try {
 		const sock = await new Promise<Duplex>((resolve, reject) => jump.forwardOut('127.0.0.1', 0, sw.ip, lab.switch.port ?? 22, (error, stream) => error !== undefined && error !== null ? reject(error) : stream === undefined ? reject(new Error('forwardOut returned no stream')) : resolve(stream)))
-		target = await connectClient({ sock, username: lab.switch.username, password: lab.switch.password, readyTimeout: 12000 })
+		target = await connectClient({ sock, username: lab.switch.username, password: lab.switch.password, readyTimeout: 12000, ...keepalive })
 		const stream = await new Promise<import('ssh2').ClientChannel>((resolve, reject) => target?.shell({ term: 'xterm-256color', cols, rows }, (error, channel) => error !== undefined && error !== null ? reject(error) : channel === undefined ? reject(new Error('shell returned no stream')) : resolve(channel)))
 		stream.on('data', (chunk: Buffer) => onData(chunk.toString('utf8')))
 		stream.on('close', () => { target?.end(); jump.end(); onClose() })

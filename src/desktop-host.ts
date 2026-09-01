@@ -85,8 +85,9 @@ export function createDesktopFeatures(options: DesktopFeaturesOptions): {
 				const id = randomBytes(16).toString('hex')
 				activeSshSessions.set(id, { id, username: lab.jumphost.username, switchId, startedAt: Date.now() })
 				if (ws.readyState !== ws.OPEN) { activeSshSessions.delete(id); shell.close() }
+				const wsPing = setInterval(() => { if (ws.readyState === ws.OPEN) ws.ping() }, 30_000)
 				ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') shell.write(message.data); if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
-				ws.on('close', () => { activeSshSessions.delete(id); shell.close() })
+				ws.on('close', () => { clearInterval(wsPing); activeSshSessions.delete(id); shell.close() })
 			}).catch((error) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
 		})
 	}
