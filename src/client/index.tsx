@@ -3,7 +3,7 @@
  * betterSidebar service. No UI of its own outside the tab.
  */
 import type { Context } from '../context-types.ts'
-import { LabView } from './LabView.tsx'
+import { DeviceManagementView } from './DeviceManagementView.tsx'
 
 export const inject = ['betterSidebar']
 
@@ -25,6 +25,6 @@ export function apply(ctx: Context): void {
 		icon: SwitchIcon,
 		order: 80,
 		single: true,
-		component: ({ visible }) => <LabView visible={visible === true} />,
+		component: ({ visible }) => <DeviceManagementView visible={visible === true} />,
 	}))
 }

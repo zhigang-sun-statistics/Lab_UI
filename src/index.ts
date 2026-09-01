@@ -20,6 +20,7 @@ import { buildTopology } from './topology.ts'
 import { parseSws } from './parser.ts'
 import type { Context, LabHttpRequest, LabHttpResponse } from './context-types.ts'
 import type { LockLogResponse, LocksResponse, TopologyResponse } from './types.ts'
+import { createDesktopFeatures } from './desktop-host.ts'
 
 export const inject = ['webServer']
 
@@ -63,6 +64,17 @@ const writeJson = (res: LabHttpResponse, status: number, body: unknown): void =>
 	res.end(JSON.stringify(body))
 }
 
+const readJsonBody = async (req: LabHttpRequest): Promise<Record<string, unknown>> => {
+	const chunks: Uint8Array[] = []
+	for await (const chunk of req as LabHttpRequest & AsyncIterable<Uint8Array>) chunks.push(chunk)
+	const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+	const merged = new Uint8Array(size)
+	let offset = 0
+	for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength }
+	const parsed: unknown = JSON.parse(new TextDecoder().decode(merged) || '{}')
+	return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {}
+}
+
 export function apply(ctx: Context, config?: LabPluginConfig): void {
 	const ttlMs = config?.cacheTtlMs ?? DEFAULT_TTL_MS
 	const timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -79,12 +91,14 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 	let topologyCache: CachedEntry<TopologyResponse> | undefined
 	let locksCache: CachedEntry<LocksResponse> | undefined
 	let inflightTopology: Promise<TopologyResponse> | undefined
+	let latestCollection: { at: number; value: Awaited<ReturnType<typeof collect>> } | undefined
 	let inflightLocks: Promise<LocksResponse> | undefined
 
 	const fetchTopology = async (): Promise<TopologyResponse> => {
 		const cfg = await lab()
 		const started = Date.now()
 		const collected = await collect(cfg, timeoutMs)
+		latestCollection = { at: Date.now(), value: collected }
 		const { switches, links } = buildTopology(cfg, collected)
 		return { fetchedAt: Date.now(), durationMs: Date.now() - started, cached: false, switches, links }
 	}
@@ -94,6 +108,7 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 		const result = await (async () => {
 			try {
 				const collected = await collect(cfg, timeoutMs)
+				latestCollection = { at: Date.now(), value: collected }
 				return { raw: collected.locks.raw, error: collected.locks.error }
 			} catch (error) {
 				return { raw: '', error: String(error instanceof Error ? error.message : error) }
@@ -114,6 +129,23 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 				writeJson(res, 500, { error: String(error instanceof Error ? error.message : error) })
 			}
 		}
+
+
+	const desktopFeatures = createDesktopFeatures({
+		lab,
+		timeoutMs,
+		getCollected: async () => {
+			if (latestCollection !== undefined && Date.now() - latestCollection.at < LOCKS_TTL_MS) return latestCollection.value
+			const value = await collect(await lab(), timeoutMs)
+			latestCollection = { at: Date.now(), value }
+			return value
+		},
+	})
+
+	ctx.effect(() => ctx.webServer?.register({ kind: 'exact', path: '/api/lab/actual-usage', handler: guarded(desktopFeatures.actualUsage) }))
+	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/files/me', handler: guarded(desktopFeatures.files) }))
+	ctx.effect(() => ctx.webServer?.registerUpgrade({ path: '/api/lab/ssh', handler: async (req, socket, head) => { if (!isTrusted(req)) { (socket as { destroy(): void }).destroy(); return }; await desktopFeatures.upgradeSsh(req, socket, head) } }))
+	ctx.effect(() => desktopFeatures.dispose)
 
 	ctx.effect(() => ctx.webServer?.register({
 		kind: 'exact',
@@ -166,7 +198,7 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 		path: '/api/lab/port-description',
 		handler: guarded(async (req, res) => {
 			if (req.method !== 'POST') { writeJson(res, 405, { error: 'method not allowed' }); return }
-			const input = JSON.parse((req as LabHttpRequest & { body?: string }).body ?? '{}') as Record<string, unknown>
+			const input = await readJsonBody(req)
 			if (typeof input.switchId !== 'string' || typeof input.interfaceName !== 'string' || typeof input.description !== 'string') { writeJson(res, 400, { error: 'switchId, interfaceName and description are required' }); return }
 			const cfg = await lab()
 			const result = await setInterfaceDescription(cfg, input.switchId, input.interfaceName, input.description, timeoutMs)

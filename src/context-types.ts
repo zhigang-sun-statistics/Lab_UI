@@ -36,8 +36,14 @@ export interface LabWebRoute {
 }
 
 /** The webServer service face this plugin uses (host side only). */
+export interface LabUpgradeRoute {
+	path: string
+	handler: (req: LabHttpRequest, socket: unknown, head: Uint8Array) => void | Promise<void>
+}
+
 export interface LabWebServer {
 	register(route: LabWebRoute): () => void
+	registerUpgrade(route: LabUpgradeRoute): () => void
 }
 
 /**
