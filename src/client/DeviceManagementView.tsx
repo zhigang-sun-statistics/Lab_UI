@@ -81,11 +81,23 @@ export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Ele
 	const [sshTabs, setSshTabs] = useState<SshTab[]>([])
 	const [sshStatus, setSshStatus] = useState<Record<string, SshConnectionState>>({})
 	const counts = useMemo(() => Object.fromEntries(['sw1','sw2','sw3','sw4'].map((switchId) => [switchId, sshTabs.filter((tab) => tab.switchId === switchId).length])), [sshTabs])
+	// Tab lifecycle: all state updates are computed OUTSIDE setState updaters.
+	// Scheduling setActiveTab from inside another updater is a side effect
+	// React 18 may drop, which strands activeTab on a removed tab id.
 	const addSsh = useCallback((switchId: string): void => {
-		setSshTabs((tabs) => { const index = Math.max(0, ...tabs.filter((tab) => tab.switchId === switchId).map((tab) => tab.index)) + 1; const tab = { id: 'ssh:' + switchId + ':' + String(Date.now()) + ':' + String(index), switchId, index }; setActiveTab(tab.id); return [...tabs, tab] })
-	}, [])
+		const index = Math.max(0, ...sshTabs.filter((tab) => tab.switchId === switchId).map((tab) => tab.index)) + 1
+		const tab: SshTab = { id: 'ssh:' + switchId + ':' + String(Date.now()) + ':' + String(index), switchId, index }
+		setSshTabs((tabs) => [...tabs, tab])
+		setActiveTab(tab.id)
+	}, [sshTabs])
 	const openSsh = useCallback((switchId: string): void => { const existing = sshTabs.find((tab) => tab.switchId === switchId); if (existing !== undefined) setActiveTab(existing.id); else addSsh(switchId) }, [sshTabs, addSsh])
-	const closeSsh = useCallback((id: string): void => { setSshTabs((tabs) => { const index = tabs.findIndex((tab) => tab.id === id); const next = tabs.filter((tab) => tab.id !== id); if (activeTab === id) setActiveTab(next[Math.max(0, index - 1)]?.id ?? 'topology'); return next }); setSshStatus((old) => { const next = { ...old }; delete next[id]; return next }) }, [activeTab])
+	const closeSsh = useCallback((id: string): void => {
+		const index = sshTabs.findIndex((tab) => tab.id === id)
+		const next = sshTabs.filter((tab) => tab.id !== id)
+		setSshTabs(next)
+		setSshStatus((old) => { const updated = { ...old }; delete updated[id]; return updated })
+		if (activeTab === id) setActiveTab(next[Math.max(0, index - 1)]?.id ?? 'topology')
+	}, [sshTabs, activeTab])
 	const logout = useCallback(async (): Promise<void> => { setSshTabs([]); setSshStatus({}); setActiveTab('topology'); await fetch('/api/lab/logout', { method: 'POST' }); setUser(null) }, [])
 	useEffect(() => { void fetch('/api/lab/session').then(async (response) => { if (response.ok) { const session = await response.json() as { username?: string }; if (session.username !== undefined) setUser(session.username) } }).finally(() => setChecking(false)) }, [])
 	if (checking) return <div className="dm-boot"><StyleInjector /><span className="dm-brand-mark">L</span><p>正在连接设备管理服务…</p></div>

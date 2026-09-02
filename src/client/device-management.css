@@ -45,7 +45,9 @@
 .dm-user button { height:26px; padding:0 10px; border:1px solid var(--dsw-alias-border-l2,#34465f); border-radius:6px; background:transparent; color:var(--dsw-alias-label-tertiary,#aebccd); font-size:11px; cursor:pointer; }
 .dm-user button:hover { color:var(--dsw-alias-label-primary,#f8fafc); background:var(--dsw-alias-interactive-bg-hover,#1c2a3d); }
 /* SSH launcher cards (平级标签页内的交换机入口). */
-.dm-ssh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;align-content:start;height:100%;min-height:0;overflow-y:auto;padding:16px}
+.dm-ssh-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-content:start;height:100%;min-height:0;overflow-y:auto;padding:14px}
+@media (min-width:1000px){.dm-ssh-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.dm-ssh-card header code{margin-left:auto;overflow:hidden;min-width:0;text-overflow:ellipsis;white-space:nowrap}
 .dm-ssh-card{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-l2,#34465f);border-radius:12px;background:var(--dsw-alias-bg-layer-1,#162236);color:var(--dsw-alias-label-primary,#f8fafc);text-align:left;cursor:pointer;transition:border-color var(--ds-transition-duration-fast,.1s) var(--ds-ease-in-out,ease),background var(--ds-transition-duration-fast,.1s) var(--ds-ease-in-out,ease)}
 .dm-ssh-card:hover{border-color:var(--dsw-alias-state-business-primary,#4d93f8);background:var(--dsw-specific-sidebar-nav-item-hover,var(--dsw-alias-interactive-bg-hover,#1c2a3d))}
 .dm-ssh-card header{display:flex;align-items:center;gap:10px}
