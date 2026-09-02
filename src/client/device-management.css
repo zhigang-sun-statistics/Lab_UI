@@ -20,7 +20,7 @@
 .dm-workspace { position:relative; flex:1; min-height:0; }
 .dm-workspace>section { display:none; position:absolute; inset:0; min-width:0; min-height:0; overflow:hidden; }
 .dm-workspace>section.active { display:block; }
-.dm-workspace .transfer-root, .dm-workspace .ssh-page { height:100%; }
+.dm-workspace .ft-root, .dm-workspace .ssh-page { height:100%; }
 .dm-tabs button:focus-visible, .dm-ssh-tab .dm-ssh-close:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary,var(--dsw-static-deepseek-400,#4d93f8)); outline-offset:1px; }
 @media (prefers-reduced-motion:reduce) { .dm-root * { transition:none!important; } }
 

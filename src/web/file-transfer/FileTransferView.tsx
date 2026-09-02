@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './file-transfer.css'
 
 interface SwitchItem{id:string;name:string;ip:string}
@@ -6,33 +6,248 @@ interface RemoteEntry{name:string;path:string;type:'file'|'directory'|'link'|'ot
 interface RemoteListing{path:string;parent:string;entries:RemoteEntry[]}
 type Phase='queued'|'local-to-jump'|'jump-to-switch'|'switch-to-jump'|'ready-to-download'|'complete'|'failed'|'cancelled'
 interface TransferTask{id:string;direction:'upload'|'download';switchId:string;sourcePath:string;destinationPath:string;fileName:string;totalBytes:number;transferredBytes:number;speedBytesPerSecond:number;phase:Phase;createdAt:number;error?:string;downloadReady?:boolean}
+type Pane='local'|'remote'
+
+const MAX_TOTAL_BYTES=2*1024*1024*1024
+const PHASE_TEXT:Record<Phase,string>={queued:'等待中','local-to-jump':'本地 → 跳板机','jump-to-switch':'跳板机 → 交换机','switch-to-jump':'交换机 → 跳板机','ready-to-download':'正在保存到本地',complete:'已完成',failed:'失败',cancelled:'已取消'}
+const bytes=(value:number):string=>value<1024?value+' B':value<1048576?(value/1024).toFixed(1)+' KB':value<1073741824?(value/1048576).toFixed(1)+' MB':(value/1073741824).toFixed(2)+' GB'
+const api=async <T,>(url:string,init?:RequestInit):Promise<T>=>{const response=await fetch(url,{...init,headers:{'content-type':'application/json',...(init?.headers??{})}});const value=await response.json().catch(()=>({error:'请求失败'})) as T&{error?:string};if(!response.ok)throw new Error(value.error??'请求失败');return value}
+
+const Icon=({kind}:{kind:'file'|'folder'|'up'|'refresh'|'newFolder'|'upload'|'download'|'retry'|'close'|'queue'}):JSX.Element=>{
+  const paths:Record<string,JSX.Element>={file:<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></>,folder:<><path d="M3 7h6l2 2h10v10H3z"/><path d="M3 7V5h6l2 2"/></>,up:<><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></>,refresh:<><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></>,newFolder:<><path d="M3 7h6l2 2h10v10H3z"/><path d="M3 7V5h6l2 2"/><path d="M12 14h4m-2-2v4"/></>,upload:<><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></>,download:<><path d="M12 4v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/></>,retry:<><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></>,close:<><path d="M18 6 6 18M6 6l12 12"/></>,queue:<><path d="M4 6h16M4 12h10M4 18h7"/></>}
+  return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[kind]}</svg>
+}
+
 interface LocalItem{name:string;path:string;type:'file'|'directory';file?:File;size:number;modifiedAt:number}
-const api=async<T,>(url:string,init?:RequestInit):Promise<T>=>{const response=await fetch(url,{...init,headers:{'content-type':'application/json',...(init?.headers??{})}});const value=await response.json().catch(()=>({error:'request failed'})) as T&{error?:string};if(!response.ok)throw new Error(value.error??'request failed');return value}
-const bytes=(value:number):string=>value<1024?value+' B':value<1048576?(value/1024).toFixed(1)+' KB':value<1073741824?(value/1048576).toFixed(1)+' MB':(value/1073741824).toFixed(1)+' GB'
-const phaseText:Record<Phase,string>={queued:'等待上传', 'local-to-jump':'本地 → 跳板机','jump-to-switch':'跳板机 → 交换机','switch-to-jump':'交换机 → 跳板机','ready-to-download':'等待保存到本地',complete:'已完成',failed:'失败',cancelled:'已取消'}
-const localTree=(files:File[],current:string):LocalItem[]=>{const prefix=current?current+'/':'';const dirs=new Map<string,LocalItem>();const output:LocalItem[]=[];for(const file of files){const full=(file.webkitRelativePath||file.name).replace(/\\/g,'/');if(!full.startsWith(prefix))continue;const rest=full.slice(prefix.length);const slash=rest.indexOf('/');if(slash>=0){const name=rest.slice(0,slash);if(!dirs.has(name))dirs.set(name,{name,path:prefix+name,type:'directory',size:0,modifiedAt:0});continue}output.push({name:rest,path:full,type:'file',file,size:file.size,modifiedAt:file.lastModified})}return[...dirs.values(),...output.sort((a,b)=>a.name.localeCompare(b.name))]}
+const buildLocalTree=(files:File[],current:string):LocalItem[]=>{
+  const prefix=current===''?'':current+'/'
+  const dirs=new Map<string,LocalItem>()
+  const output:LocalItem[]=[]
+  for(const file of files){
+    const full=(file.webkitRelativePath||file.name).replace(/\\/g,'/')
+    if(!full.startsWith(prefix))continue
+    const rest=full.slice(prefix.length)
+    const slash=rest.indexOf('/')
+    if(slash>=0){const name=rest.slice(0,slash);if(!dirs.has(name))dirs.set(name,{name,path:prefix+name,type:'directory',size:0,modifiedAt:0});continue}
+    output.push({name:rest,path:full,type:'file',file,size:file.size,modifiedAt:file.lastModified})
+  }
+  return[...dirs.values(),...output.sort((a,b)=>a.name.localeCompare(b.name))]
+}
+
+const PATH_STORE='ft:remotePaths'
+const readPaths=():Record<string,string>=>{try{return JSON.parse(localStorage.getItem(PATH_STORE)??'{}') as Record<string,string>}catch{return{}}}
 
 export function FileTransferView():JSX.Element{
- const [switches,setSwitches]=useState<SwitchItem[]>([]),[switchId,setSwitchId]=useState('sw1')
- const [remote,setRemote]=useState<RemoteListing>({path:'/home/admin',parent:'/home/admin',entries:[]}),[remoteBusy,setRemoteBusy]=useState(false)
- const [localFiles,setLocalFiles]=useState<File[]>([]),[localPath,setLocalPath]=useState(''),[localSelected,setLocalSelected]=useState<Set<string>>(new Set()),[remoteSelected,setRemoteSelected]=useState<Set<string>>(new Set())
- const [transfers,setTransfers]=useState<TransferTask[]>([]),[error,setError]=useState(''),[uploadProgress,setUploadProgress]=useState<Record<string,number>>({})
- const filesRef=useRef<HTMLInputElement>(null),folderRef=useRef<HTMLInputElement>(null)
- const localEntries=useMemo(()=>localTree(localFiles,localPath),[localFiles,localPath])
- const loadRemote=async(path=remote.path,nextSwitch=switchId):Promise<void>=>{setRemoteBusy(true);setError('');try{setRemote(await api<RemoteListing>('/api/files/me/remote?switch='+encodeURIComponent(nextSwitch)+'&path='+encodeURIComponent(path)));setRemoteSelected(new Set())}catch(e){setError(String(e instanceof Error?e.message:e))}finally{setRemoteBusy(false)}}
- const loadTransfers=async():Promise<void>=>{try{const result=await api<{transfers:TransferTask[]}>('/api/files/me/transfers');setTransfers(result.transfers)}catch{}}
- useEffect(()=>{void api<{switches:SwitchItem[]}>('/api/files/me/switches').then((r)=>{setSwitches(r.switches);if(r.switches[0])setSwitchId(r.switches[0].id)}).then(()=>loadRemote('/home/admin','sw1')).catch((e)=>setError(String(e)));void loadTransfers();const timer=setInterval(()=>void loadTransfers(),900);return()=>clearInterval(timer)},[])
- const addFiles=(list:File[]):void=>{setLocalFiles((old)=>{const map=new Map(old.map((f)=>[(f.webkitRelativePath||f.name)+'|'+f.size,f]));for(const file of list)map.set((file.webkitRelativePath||file.name)+'|'+file.size,file);return Array.from(map.values())});setLocalPath('');setLocalSelected(new Set())}
- const uploadOne=async(file:File,relativeName?:string):Promise<void>=>{const fileName=(relativeName??file.name).split('/').at(-1)??file.name;const task=await api<TransferTask>('/api/files/me/transfers',{method:'POST',body:JSON.stringify({direction:'upload',switchId,remoteDirectory:remote.path,fileName,size:file.size,overwrite:false})});await new Promise<void>((resolveUpload,reject)=>{const xhr=new XMLHttpRequest();xhr.open('PUT','/api/files/me/transfers/'+task.id+'/content');xhr.upload.onprogress=(event)=>{if(event.lengthComputable)setUploadProgress((old)=>({...old,[task.id]:event.loaded/event.total*100}))};xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolveUpload():reject(new Error('上传到跳板机失败'));xhr.onerror=()=>reject(new Error('上传连接失败'));xhr.send(file)});void loadTransfers()}
- const uploadSelected=async():Promise<void>=>{setError('');const selected=localEntries.filter((item)=>item.type==='file'&&(localSelected.size===0||localSelected.has(item.path)));if(selected.length===0){setError('请进入包含文件的目录并选择文件');return}try{for(const item of selected)if(item.file)await uploadOne(item.file,item.path)}catch(e){setError(String(e instanceof Error?e.message:e))}}
- const requestDownload=async(entry:RemoteEntry):Promise<void>=>{if(entry.type!=='file')return;await api<TransferTask>('/api/files/me/transfers',{method:'POST',body:JSON.stringify({direction:'download',switchId,remotePath:entry.path})});void loadTransfers()}
- const downloadSelected=async():Promise<void>=>{try{const selected=remote.entries.filter((entry)=>entry.type==='file'&&(remoteSelected.size===0?false:remoteSelected.has(entry.path)));if(!selected.length){setError('请选择需要下载的远程文件');return}for(const entry of selected)await requestDownload(entry)}catch(e){setError(String(e instanceof Error?e.message:e))}}
- const saveReady=(task:TransferTask):void=>{location.href='/api/files/me/transfers/'+task.id+'/download';setTimeout(()=>void loadTransfers(),700)}
- const mkdirRemote=async():Promise<void>=>{const name=window.prompt('在 '+remote.path+' 下新建文件夹：');if(!name)return;try{await api('/api/files/me/remote/directories',{method:'POST',body:JSON.stringify({switchId,parent:remote.path,name})});await loadRemote()}catch(e){setError(String(e instanceof Error?e.message:e))}}
- const selectedSwitch=switches.find((item)=>item.id===switchId)
- return <div className="transfer-root"><header className="transfer-head"><div><small>SECURE FILE BRIDGE</small><strong>本地文件 ⇄ 跳板机 ⇄ 交换机</strong></div><label>目标设备<select value={switchId} onChange={(e)=>{setSwitchId(e.target.value);void loadRemote('/home/admin',e.target.value)}}>{switches.map((sw)=><option key={sw.id} value={sw.id}>{sw.id.toUpperCase()} · {sw.ip}</option>)}</select></label><span className="transfer-connected"><i/>{selectedSwitch?selectedSwitch.name.toUpperCase()+' SFTP':'连接中'}</span></header>
- <main className="transfer-panes"><section className="transfer-pane local" onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault();addFiles(Array.from(e.dataTransfer.files))}}><header><div><small>LOCAL / 用户授权目录</small><strong>{localPath||'已选择的本地文件'}</strong></div><div><button aria-label="返回本地上一级目录" disabled={!localPath} onClick={()=>setLocalPath(localPath.split('/').slice(0,-1).join('/'))}>↑</button><button onClick={()=>filesRef.current?.click()}>选择文件</button><button onClick={()=>folderRef.current?.click()}>选择文件夹</button></div></header><input ref={filesRef} hidden multiple type="file" onChange={(e)=>{addFiles(Array.from(e.target.files??[]));e.target.value=''}}/><input ref={folderRef} hidden multiple type="file" {...({webkitdirectory:'',directory:''} as React.InputHTMLAttributes<HTMLInputElement>)} onChange={(e)=>{addFiles(Array.from(e.target.files??[]));e.target.value=''}}/><div className="transfer-path"><span>LOCAL</span><code>{localPath||'选择 Windows 文件，或在系统选择器中输入 \\wsl.localhost\Ubuntu\…'}</code></div><div className="transfer-list"><div className="transfer-columns"><span>Name</span><span>Size</span><span>Modified</span></div>{localEntries.length===0?<div className="transfer-blank"><b>选择本地文件或文件夹</b><p>支持拖放；WSL 文件可通过 Windows 选择器访问 UNC 路径。</p></div>:localEntries.map((item)=><button draggable={item.type==='file'} key={item.path} className={localSelected.has(item.path)?'selected':''} onClick={()=>item.type==='file'&&setLocalSelected((old)=>{const next=new Set(old);next.has(item.path)?next.delete(item.path):next.add(item.path);return next})} onDoubleClick={()=>item.type==='directory'&&setLocalPath(item.path)} onDragStart={(e)=>e.dataTransfer.setData('application/x-local-path',item.path)}><span><i className={item.type}/>{item.name}</span><code>{item.type==='file'?bytes(item.size):'—'}</code><time>{item.modifiedAt?new Date(item.modifiedAt).toLocaleString():'—'}</time></button>)}</div><footer><span>{localFiles.length} 个已授权文件 · {localSelected.size} 个已选择</span><button onClick={()=>void uploadSelected()}>上传到 {switchId.toUpperCase()} →</button></footer></section>
- <div className="transfer-bridge"><span>→</span><i/><small>JUMP<br/>HOST</small><span>←</span></div>
- <section className="transfer-pane remote" onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault();const path=e.dataTransfer.getData('application/x-local-path');const item=localEntries.find((x)=>x.path===path);if(item?.file)void uploadOne(item.file,item.path)}}><header><div><small>REMOTE / {switchId.toUpperCase()}</small><strong>{selectedSwitch?.ip??'—'}</strong></div><div><button aria-label="返回远程上一级目录" disabled={remote.parent===remote.path} onClick={()=>void loadRemote(remote.parent)}>↑</button><button onClick={()=>void loadRemote()}>刷新</button><button onClick={()=>void mkdirRemote()}>新建目录</button></div></header><div className="transfer-path"><span>{switchId.toUpperCase()}</span><code>{remote.path}</code></div><div className={'transfer-list '+(remoteBusy?'loading':'')}><div className="transfer-columns"><span>Name</span><span>Size</span><span>Modified</span></div>{remote.entries.map((item)=><button draggable={item.type==='file'} key={item.path} className={remoteSelected.has(item.path)?'selected':''} onClick={()=>item.type==='file'&&setRemoteSelected((old)=>{const next=new Set(old);next.has(item.path)?next.delete(item.path):next.add(item.path);return next})} onDoubleClick={()=>item.type==='directory'?void loadRemote(item.path):void requestDownload(item)}><span><i className={item.type}/>{item.name}</span><code>{item.type==='file'?bytes(item.size):'—'}</code><time>{item.modifiedAt?new Date(item.modifiedAt).toLocaleString():'—'}</time></button>)}</div><footer><span>{remote.entries.length} 项 · {remoteSelected.size} 个已选择</span><button onClick={()=>void downloadSelected()}>← 下载到本地</button></footer></section></main>
- <section className="transfer-queue" aria-label="传输进度"><header><div><small>TRANSFER QUEUE</small><strong>传输进度</strong></div><span>{transfers.filter((t)=>!['complete','failed','cancelled'].includes(t.phase)).length} 个活动任务</span></header><div>{transfers.length===0?<p className="queue-empty">暂无传输任务</p>:transfers.slice(0,12).map((task)=>{const percent=task.totalBytes?Math.min(100,task.transferredBytes/task.totalBytes*100):(uploadProgress[task.id]??0);return <article key={task.id} className={task.phase}><span className="direction">{task.direction==='upload'?'↑':'↓'}</span><div className="queue-name"><b>{task.fileName}</b><small>{task.switchId.toUpperCase()} · {phaseText[task.phase]}{task.error?' · '+task.error:''}</small></div><div className="queue-progress"><i style={{width:percent+'%'}}/></div><code>{percent.toFixed(0)}%</code><span className="speed">{task.speedBytesPerSecond?bytes(task.speedBytesPerSecond)+'/s':'—'}</span>{task.phase==='ready-to-download'?<button onClick={()=>saveReady(task)}>保存</button>:!['complete','failed','cancelled'].includes(task.phase)?<button aria-label={'取消传输 '+task.fileName} onClick={()=>void api('/api/files/me/transfers/'+task.id+'/cancel',{method:'POST',body:'{}'}).then(loadTransfers)}>×</button>:<em>{task.phase==='complete'?'✓':'!'}</em>}</article>})}</div></section>{error&&<button className="transfer-error" role="alert" aria-label="关闭文件传输错误" onClick={()=>setError('')}>{error} ×</button>}</div>
+  const [switches,setSwitches]=useState<SwitchItem[]>([])
+  const [switchId,setSwitchId]=useState('sw1')
+  const [pane,setPane]=useState<Pane>('remote')
+  const [remote,setRemote]=useState<RemoteListing>({path:'/home/admin',parent:'/home/admin',entries:[]})
+  const [remoteBusy,setRemoteBusy]=useState(false)
+  const [remoteSelected,setRemoteSelected]=useState<Set<string>>(new Set())
+  const [localFiles,setLocalFiles]=useState<File[]>([])
+  const [localPath,setLocalPath]=useState('')
+  const [localSelected,setLocalSelected]=useState<Set<string>>(new Set())
+  const [transfers,setTransfers]=useState<TransferTask[]>([])
+  const [queueOpen,setQueueOpen]=useState(true)
+  const [error,setError]=useState('')
+  const [uploadProgress,setUploadProgress]=useState<Record<string,number>>({})
+  const filesRef=useRef<HTMLInputElement>(null)
+  const folderRef=useRef<HTMLInputElement>(null)
+  const savedRef=useRef<Set<string>>(new Set())
+
+  const localEntries=useMemo(()=>buildLocalTree(localFiles,localPath),[localFiles,localPath])
+  const uploadTarget=useMemo(()=>readPaths()[switchId]??'/home/admin',[switchId])
+  const selectedUploads=useMemo(()=>localEntries.filter((item)=>item.type==='file'&&(localSelected.size===0||localSelected.has(item.path))),[localEntries,localSelected])
+  const selectedDownloads=useMemo(()=>remote.entries.filter((entry)=>entry.type==='file'&&remoteSelected.has(entry.path)),[remote,remoteSelected])
+  const activeCount=transfers.filter((task)=>!['complete','failed','cancelled'].includes(task.phase)).length
+  const selectedUploadBytes=selectedUploads.reduce((sum,item)=>sum+(item.file?.size??0),0)
+
+  const loadRemote=useCallback(async(path:string,nextSwitch:string):Promise<void>=>{
+    setRemoteBusy(true);setError('')
+    try{
+      setRemote(await api<RemoteListing>('/api/files/me/remote?switch='+encodeURIComponent(nextSwitch)+'&path='+encodeURIComponent(path)))
+      setRemoteSelected(new Set())
+      const store=readPaths();store[nextSwitch]=path;localStorage.setItem(PATH_STORE,JSON.stringify(store))
+    }catch(e){setError(String(e instanceof Error?e.message:e))}finally{setRemoteBusy(false)}
+  },[])
+
+  const loadTransfers=useCallback(async():Promise<void>=>{try{const result=await api<{transfers:TransferTask[]}>('/api/files/me/transfers');setTransfers(result.transfers)}catch{}},[])
+
+  const autoSave=useCallback((task:TransferTask):void=>{
+    if(savedRef.current.has(task.id))return
+    savedRef.current.add(task.id)
+    location.href='/api/files/me/transfers/'+task.id+'/download'
+    setTimeout(()=>void loadTransfers(),800)
+  },[loadTransfers])
+
+  useEffect(()=>{
+    void api<{switches:SwitchItem[]}>('/api/files/me/switches').then((result)=>{
+      setSwitches(result.switches)
+      const first=result.switches[0]?.id??'sw1'
+      setSwitchId(first)
+      void loadRemote(readPaths()[first]??'/home/admin',first)
+    }).catch((e)=>setError(String(e)))
+    void loadTransfers()
+    const timer=setInterval(()=>void loadTransfers(),900)
+    return()=>clearInterval(timer)
+  },[loadRemote,loadTransfers])
+
+  // 下载任务一旦就绪立即触发浏览器保存,不再依赖手动点击。
+  useEffect(()=>{for(const task of transfers)if(task.phase==='ready-to-download')autoSave(task)},[transfers,autoSave])
+
+  const addFiles=(list:File[]):void=>{
+    setLocalFiles((old)=>{const map=new Map(old.map((f)=>[(f.webkitRelativePath||f.name)+'|'+f.size,f]));for(const file of list)map.set((file.webkitRelativePath||file.name)+'|'+file.size,file);return Array.from(map.values())})
+    setLocalPath('');setLocalSelected(new Set())
+  }
+
+  const uploadOne=async(file:File,relativeName?:string):Promise<void>=>{
+    const fileName=(relativeName??file.name).split('/').at(-1)??file.name
+    const task=await api<TransferTask>('/api/files/me/transfers',{method:'POST',body:JSON.stringify({direction:'upload',switchId,remoteDirectory:uploadTarget,fileName,size:file.size,overwrite:false})})
+    await new Promise<void>((resolveUpload,reject)=>{
+      const xhr=new XMLHttpRequest()
+      xhr.open('PUT','/api/files/me/transfers/'+task.id+'/content')
+      xhr.upload.onprogress=(event)=>{if(event.lengthComputable)setUploadProgress((old)=>({...old,[task.id]:event.loaded/event.total*100}))}
+      xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolveUpload():reject(new Error('上传到跳板机失败'))
+      xhr.onerror=()=>reject(new Error('上传连接失败'))
+      xhr.send(file)
+    })
+    void loadTransfers()
+  }
+
+  const uploadSelected=async():Promise<void>=>{
+    setError('')
+    if(selectedUploads.length===0){setError('请先在本地栏选择要上传的文件');return}
+    if(selectedUploadBytes>MAX_TOTAL_BYTES){setError('单次传输总量不能超过 2 GB(当前 '+bytes(selectedUploadBytes)+'),请分批上传');return}
+    try{for(const item of selectedUploads)if(item.file)await uploadOne(item.file,item.path)}
+    catch(e){setError(String(e instanceof Error?e.message:e))}
+  }
+
+  const downloadSelected=async():Promise<void>=>{
+    setError('')
+    if(selectedDownloads.length===0){setError('请先勾选要下载的远程文件');return}
+    try{for(const entry of selectedDownloads)await api('/api/files/me/transfers',{method:'POST',body:JSON.stringify({direction:'download',switchId,remotePath:entry.path})});setRemoteSelected(new Set())}
+    catch(e){setError(String(e instanceof Error?e.message:e))}
+  }
+
+  const retryTask=async(task:TransferTask):Promise<void>=>{
+    if(task.direction!=='download'){setError('上传任务请重新选择文件后再次上传');return}
+    try{await api('/api/files/me/transfers',{method:'POST',body:JSON.stringify({direction:'download',switchId:task.switchId,remotePath:task.sourcePath})});void loadTransfers()}
+    catch(e){setError(String(e instanceof Error?e.message:e))}
+  }
+
+  const mkdirRemote=async():Promise<void>=>{
+    const name=window.prompt('在 '+remote.path+' 下新建文件夹：')
+    if(!name)return
+    try{await api('/api/files/me/remote/directories',{method:'POST',body:JSON.stringify({switchId,parent:remote.path,name})});await loadRemote(remote.path,switchId)}
+    catch(e){setError(String(e instanceof Error?e.message:e))}
+  }
+
+  const crumbs=remote.path==='/'?['/']:['/',...remote.path.split('/').filter(Boolean)]
+  const selectedSwitch=switches.find((item)=>item.id===switchId)
+  const queueLabel=activeCount>0?'队列 ('+String(activeCount)+')':'队列'
+
+  return <div className="ft-root">
+    <header className="ft-toolbar">
+      <div className="ft-seg" role="tablist" aria-label="文件浏览位置">
+        <button role="tab" aria-selected={pane==='local'} className={pane==='local'?'active':''} onClick={()=>setPane('local')}>本地文件</button>
+        <button role="tab" aria-selected={pane==='remote'} className={pane==='remote'?'active':''} onClick={()=>setPane('remote')}>{switchId.toUpperCase()} 文件系统</button>
+      </div>
+      <label className="ft-switch"><span>设备</span>
+        <select value={switchId} onChange={(event)=>{const next=event.target.value;setSwitchId(next);void loadRemote(readPaths()[next]??'/home/admin',next)}} aria-label="目标交换机">
+          {switches.map((item)=><option key={item.id} value={item.id}>{item.id.toUpperCase()} · {item.ip}</option>)}
+        </select>
+      </label>
+      <span className="ft-live"><i/>{selectedSwitch?selectedSwitch.ip:'连接中'}</span>
+      <span className="ft-flex"/>
+      <button className={'ft-ghost'+(queueOpen?' active':'')} aria-pressed={queueOpen} onClick={()=>setQueueOpen(!queueOpen)}><Icon kind="queue"/>{queueLabel}</button>
+    </header>
+
+    <div className={'ft-main'+(queueOpen?' with-queue':'')}>
+      <section className="ft-browser" aria-label={pane==='local'?'本地授权文件':'交换机文件系统'}>
+        {pane==='local'?(
+          <>
+            <div className="ft-crumbs">
+              <button className="ft-ghost" disabled={localPath===''} aria-label="返回本地上一级" onClick={()=>setLocalPath(localPath.split('/').slice(0,-1).join('/'))}><Icon kind="up"/></button>
+              <code>{localPath||'已选择的本地文件'}</code>
+              <span className="ft-flex"/>
+              <button className="ft-ghost" onClick={()=>filesRef.current?.click()}><Icon kind="file"/>选择文件</button>
+              <button className="ft-ghost" onClick={()=>folderRef.current?.click()}><Icon kind="folder"/>选择文件夹</button>
+              {localFiles.length>0&&<button className="ft-ghost" onClick={()=>{setLocalFiles([]);setLocalPath('');setLocalSelected(new Set())}}><Icon kind="close"/>清空</button>}
+            </div>
+            <input ref={filesRef} hidden multiple type="file" onChange={(event)=>{addFiles(Array.from(event.target.files??[]));event.target.value=''}}/>
+            <input ref={folderRef} hidden multiple type="file" {...({webkitdirectory:'',directory:''} as React.InputHTMLAttributes<HTMLInputElement>)} onChange={(event)=>{addFiles(Array.from(event.target.files??[]));event.target.value=''}}/>
+            <div className="ft-list" onDragOver={(event)=>event.preventDefault()} onDrop={(event)=>{event.preventDefault();addFiles(Array.from(event.dataTransfer.files))}}>
+              {localEntries.length===0
+                ?<div className="ft-empty"><b>选择或拖入本地文件</b><p>支持文件与整个文件夹;WSL 路径可通过 Windows 选择器的 \\\\wsl.localhost 访问。</p></div>
+                :localEntries.map((item)=>(
+                  <button key={item.path} className={localSelected.has(item.path)?'selected':''} onClick={()=>item.type==='file'&&setLocalSelected((old)=>{const next=new Set(old);next.has(item.path)?next.delete(item.path):next.add(item.path);return next})} onDoubleClick={()=>item.type==='directory'&&setLocalPath(item.path)}>
+                    <span className="ft-name"><i className={item.type}/>{item.name}</span>
+                    <code>{item.type==='file'?bytes(item.size):'—'}</code>
+                    <time>{item.modifiedAt?new Date(item.modifiedAt).toLocaleString():'—'}</time>
+                  </button>
+                ))}
+            </div>
+            <footer className="ft-actionbar">
+              <span>{localFiles.length} 个文件 · 已选 {selectedUploads.length} 个{selectedUploads.length>0?' · '+bytes(selectedUploadBytes):''}</span>
+              <button className="ft-primary" disabled={selectedUploads.length===0} onClick={()=>void uploadSelected()}><Icon kind="upload"/>上传到 {switchId.toUpperCase()}:{uploadTarget}</button>
+            </footer>
+          </>
+        ):(
+          <>
+            <div className="ft-crumbs">
+              <button className="ft-ghost" disabled={remote.parent===remote.path||remoteBusy} aria-label="返回远程上一级" onClick={()=>void loadRemote(remote.parent,switchId)}><Icon kind="up"/></button>
+              <code className="ft-path" aria-label="远程路径">{crumbs.map((part,index)=><span key={String(index)}>{index===0&&crumbs.length>1?'/ ':part}{index<crumbs.length-1?'/':''}</span>)}</code>
+              <span className="ft-flex"/>
+              <button className="ft-ghost" disabled={remoteBusy} onClick={()=>void loadRemote(remote.path,switchId)} aria-label="刷新远程列表"><Icon kind="refresh"/></button>
+              <button className="ft-ghost" onClick={()=>void mkdirRemote()}><Icon kind="newFolder"/>新建目录</button>
+            </div>
+            <div className={'ft-list'+(remoteBusy?' loading':'')}>
+              {remote.entries.length===0
+                ?<div className="ft-empty"><b>{remoteBusy?'正在读取目录…':'目录为空'}</b><p>双击文件夹进入;勾选文件后从底部下载。</p></div>
+                :remote.entries.map((entry)=>(
+                  <button key={entry.path} className={remoteSelected.has(entry.path)?'selected':''} onClick={()=>entry.type==='file'&&setRemoteSelected((old)=>{const next=new Set(old);next.has(entry.path)?next.delete(entry.path):next.add(entry.path);return next})} onDoubleClick={()=>entry.type==='directory'?void loadRemote(entry.path,switchId):void downloadSelected()}>
+                    <span className="ft-name"><i className={entry.type==='directory'?'directory':'file'}/>{entry.name}</span>
+                    <code>{entry.type==='file'?bytes(entry.size):'—'}</code>
+                    <time>{entry.modifiedAt?new Date(entry.modifiedAt).toLocaleString():'—'}</time>
+                  </button>
+                ))}
+            </div>
+            <footer className="ft-actionbar">
+              <span>{remote.entries.length} 项 · 已选 {selectedDownloads.length} 个</span>
+              <button className="ft-primary" disabled={selectedDownloads.length===0} onClick={()=>void downloadSelected()}><Icon kind="download"/>下载选中(自动保存)</button>
+            </footer>
+          </>
+        )}
+      </section>
+
+      <aside className={'ft-queue'+(queueOpen?'':' collapsed')} aria-label="传输队列">
+        <header>
+          <div><small>TRANSFER QUEUE</small><strong>传输队列</strong></div>
+          <span>{activeCount>0?activeCount+' 个进行中':'空闲'}</span>
+        </header>
+        <div className="ft-queue-list">
+          {transfers.length===0
+            ?<p className="ft-queue-empty">暂无传输任务</p>
+            :transfers.slice(0,30).map((task)=>{
+              const percent=task.totalBytes?Math.min(100,task.transferredBytes/task.totalBytes*100):(uploadProgress[task.id]??0)
+              return <article key={task.id} className={task.phase}>
+                <span className="ft-dir">{task.direction==='upload'?'↑':'↓'}</span>
+                <div className="ft-task">
+                  <b>{task.fileName}</b>
+                  <small>{task.switchId.toUpperCase()} · {PHASE_TEXT[task.phase]}{task.error?' · '+task.error:''}{task.speedBytesPerSecond>0?' · '+bytes(task.speedBytesPerSecond)+'/s':''}</small>
+                  <div className="ft-bar"><i style={{width:percent+'%'}}/></div>
+                </div>
+                <code>{percent.toFixed(0)}%</code>
+                {task.phase==='ready-to-download'?<button className="ft-ghost" aria-label={'立即保存 '+task.fileName} onClick={()=>autoSave(task)}>保存</button>
+                  :task.phase==='failed'&&task.direction==='download'?<button className="ft-ghost" aria-label={'重试 '+task.fileName} onClick={()=>void retryTask(task)}><Icon kind="retry"/></button>
+                  :!['complete','failed','cancelled'].includes(task.phase)?<button className="ft-ghost" aria-label={'取消传输 '+task.fileName} onClick={()=>{void api('/api/files/me/transfers/'+task.id+'/cancel',{method:'POST',body:'{}'}).then(loadTransfers)}}><Icon kind="close"/></button>
+                  :<em className="ft-done">{task.phase==='complete'?'✓':'—'}</em>}
+              </article>
+            })}
+        </div>
+      </aside>
+    </div>
+
+    {error.length>0&&<button className="ft-error" role="alert" aria-label="关闭错误提示" onClick={()=>setError('')}>{error} ×</button>}
+  </div>
 }
