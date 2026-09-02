@@ -208,7 +208,8 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 	})
 
 	ctx.effect(() => ctx.webServer?.register({ kind: 'exact', path: '/api/jenkins/jobs', handler: withSession(async (_req, res) => { try { writeJson(res, 200, await listJobs()) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } }) }))
-	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/jenkins/jobs/', handler: withSession(async (req, res) => {
+	// Prefix routes must NOT end with '/': the matcher checks startsWith(prefix + '/').
+	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/jenkins/jobs', handler: withSession(async (req, res) => {
 		const path = new URL(req.url ?? '/', 'http://localhost').pathname
 		const buildsMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds$/)
 		if (buildsMatch !== null) { try { writeJson(res, 200, await listBuilds(decodeURIComponent(buildsMatch[1] ?? ''), Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 15))) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return }
