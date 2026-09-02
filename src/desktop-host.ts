@@ -10,7 +10,14 @@ import type { ActualSwitchUser, ActualUsageResponse } from './types.ts'
 import type { LabHttpRequest, LabHttpResponse } from './context-types.ts'
 
 interface ActiveSshSession { id: string; username: string; switchId: string; startedAt: number }
-interface DesktopFeaturesOptions { lab: () => Promise<LabConfig>; getCollected: () => Promise<CollectOutput>; timeoutMs: number }
+interface DesktopFeaturesOptions { getCollected: (lab: LabConfig) => Promise<CollectOutput> }
+
+interface DesktopFeatures {
+	actualUsage: (req: LabHttpRequest, res: LabHttpResponse, lab: LabConfig) => Promise<void>
+	files: (req: LabHttpRequest, res: LabHttpResponse, lab: LabConfig, owner: string) => Promise<void>
+	upgradeSsh: (req: LabHttpRequest, socket: unknown, head: Uint8Array, lab: LabConfig) => Promise<void>
+	dispose: () => void
+}
 
 const writeJson = (res: LabHttpResponse, status: number, value: unknown): void => {
 	res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -24,17 +31,11 @@ const readBody = async (request: LabHttpRequest): Promise<Record<string, unknown
 	return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {}
 }
 
-export function createDesktopFeatures(options: DesktopFeaturesOptions): {
-	actualUsage: (req: LabHttpRequest, res: LabHttpResponse) => Promise<void>
-	files: (req: LabHttpRequest, res: LabHttpResponse) => Promise<void>
-	upgradeSsh: (req: LabHttpRequest, socket: unknown, head: Uint8Array) => Promise<void>
-	dispose: () => void
-} {
+export function createDesktopFeatures(options: DesktopFeaturesOptions): DesktopFeatures {
 	const activeSshSessions = new Map<string, ActiveSshSession>()
 	const wss = new WebSocketServer({ noServer: true })
 
-	const actualUsage = async (_req: LabHttpRequest, res: LabHttpResponse): Promise<void> => {
-		const lab = await options.lab()
+	const actualUsage = async (_req: LabHttpRequest, res: LabHttpResponse, lab: LabConfig): Promise<void> => {
 		const bySwitch: Record<string, ActualSwitchUser[]> = Object.fromEntries(lab.switches.map((sw) => [sw.id, []]))
 		const merge = (item: ActualSwitchUser): void => {
 			const list = bySwitch[item.switchId]
@@ -44,7 +45,7 @@ export function createDesktopFeatures(options: DesktopFeaturesOptions): {
 			list.push(item)
 		}
 		for (const session of activeSshSessions.values()) merge({ username: session.username, switchId: session.switchId, source: 'lab-ssh', sessionCount: 1, startedAt: session.startedAt })
-		const collected = await options.getCollected()
+		const collected = await options.getCollected(lab)
 		for (const lock of parseSwkitLockUsers(collected.lockUsers.raw)) {
 			const name = lock.switchName?.trim() ?? ''
 			const number = name.match(/(?:switch\s*-?|sw\s*)(\d+)/i)?.[1]
@@ -56,9 +57,7 @@ export function createDesktopFeatures(options: DesktopFeaturesOptions): {
 		writeJson(res, 200, response)
 	}
 
-	const files = async (req: LabHttpRequest, res: LabHttpResponse): Promise<void> => {
-		const lab = await options.lab()
-		const owner = lab.jumphost.username
+	const files = async (req: LabHttpRequest, res: LabHttpResponse, lab: LabConfig, owner: string): Promise<void> => {
 		const url = new URL(req.url ?? '/', 'http://localhost')
 		const path = url.pathname
 		if (path === '/api/files/me/switches' && req.method === 'GET') { writeJson(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return }
@@ -75,8 +74,7 @@ export function createDesktopFeatures(options: DesktopFeaturesOptions): {
 		writeJson(res, 404, { error: 'not found' })
 	}
 
-	const upgradeSsh = async (req: LabHttpRequest, socket: unknown, head: Uint8Array): Promise<void> => {
-		const lab = await options.lab()
+	const upgradeSsh = async (req: LabHttpRequest, socket: unknown, head: Uint8Array, lab: LabConfig): Promise<void> => {
 		const url = new URL(req.url ?? '/', 'http://localhost')
 		const switchId = url.searchParams.get('switch') ?? ''
 		if (!lab.switches.some((sw) => sw.id === switchId)) { (socket as Duplex).destroy(); return }

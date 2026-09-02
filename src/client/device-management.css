@@ -23,3 +23,24 @@
 .dm-workspace .transfer-root, .dm-workspace .ssh-page { height:100%; }
 .dm-tabs button:focus-visible, .dm-ssh-tab .dm-ssh-close:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary,var(--dsw-static-deepseek-400,#4d93f8)); outline-offset:1px; }
 @media (prefers-reduced-motion:reduce) { .dm-root * { transition:none!important; } }
+
+/* Session gate — same ZNSL authentication as the LAN web console. */
+.dm-login { display:grid; place-items:center; height:100%; min-height:0; background:var(--dsw-alias-bg-base,#0f172a); color:var(--dsw-alias-label-primary,#f8fafc); font-family:var(--dsw-font-family,inherit); }
+.dm-login-card { display:flex; flex-direction:column; gap:12px; width:min(360px,90%); padding:28px; border:1px solid var(--dsw-alias-border-l2,#34465f); border-radius:12px; background:var(--dsw-alias-bg-layer-1,#162236); box-shadow:var(--dsw-shadow-lv2,0 4px 12px 0 #00000005,0 2px 8px 0 #0000000a); }
+.dm-login-card small { color:var(--dsw-alias-label-caption,#70ddb0); font:700 10px/1.4 ui-monospace,Consolas,monospace; letter-spacing:.12em; }
+.dm-login-card h2 { margin:0; font-size:18px; }
+.dm-login-card p { margin:0; color:var(--dsw-alias-label-tertiary,#8d9baa); font-size:12px; line-height:1.6; }
+.dm-login-card label { display:flex; flex-direction:column; gap:6px; font-size:12px; color:var(--dsw-alias-label-secondary,#aebccd); }
+.dm-login-card input { height:36px; padding:0 10px; border:1px solid var(--dsw-alias-border-l2,#34465f); border-radius:7px; background:var(--dsw-alias-bg-base,#0d1217); color:var(--dsw-alias-label-primary,#dce5eb); outline:0; font-size:13px; }
+.dm-login-card input:focus-visible { border-color:var(--dsw-alias-state-business-primary,#4d93f8); }
+.dm-login-error { padding:8px 10px; border:1px solid var(--dsw-alias-state-error-primary,#ef4444); border-radius:7px; color:var(--dsw-alias-state-error-primary,#f09aa3); font-size:12px; }
+.dm-login-card button[type=submit] { height:38px; margin-top:4px; border:0; border-radius:7px; background:var(--dsw-alias-button-info-fill,#4176e6); color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
+.dm-login-card button[type=submit]:hover { background:var(--dsw-alias-button-info-hover,#5686fe); }
+.dm-login-card button[type=submit]:disabled { opacity:.55; cursor:default; }
+.dm-login-note { display:flex; justify-content:space-between; color:var(--dsw-alias-label-tertiary,#748394); font-size:11px; }
+.dm-boot { display:grid; place-items:center; align-content:center; gap:12px; height:100%; color:var(--dsw-alias-label-tertiary,#8d9baa); font-family:var(--dsw-font-family,inherit); }
+.dm-brand-mark { display:grid; place-items:center; width:38px; height:38px; border:1px solid var(--dsw-alias-border-l2,#34465f); border-radius:9px; color:var(--dsw-alias-label-primary,#86efac); background:var(--dsw-alias-bg-layer-2,#1b2a3d); font:700 16px ui-monospace,Consolas,monospace; }
+.dm-user { display:inline-flex; align-items:center; gap:8px; margin-left:auto; padding-left:10px; }
+.dm-user code { color:var(--dsw-alias-label-secondary,#aebccd); font:600 12px ui-monospace,Consolas,monospace; }
+.dm-user button { height:26px; padding:0 10px; border:1px solid var(--dsw-alias-border-l2,#34465f); border-radius:6px; background:transparent; color:var(--dsw-alias-label-tertiary,#aebccd); font-size:11px; cursor:pointer; }
+.dm-user button:hover { color:var(--dsw-alias-label-primary,#f8fafc); background:var(--dsw-alias-interactive-bg-hover,#1c2a3d); }
