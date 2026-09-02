@@ -2,11 +2,48 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { LabView } from './LabView.tsx'
 import { StyleInjector } from './StyleInjector.tsx'
 import { FileTransferView } from '../web/file-transfer/FileTransferView.tsx'
+import { TransferQueueBar } from '../web/file-transfer/TransferQueueBar.tsx'
 import { SshTerminal, type SshConnectionState } from '../ssh/SshTerminal.tsx'
 import './device-management.css'
 
 interface SshTab { id: string; switchId: string; index: number }
-type ActiveTab = 'topology' | 'files' | string
+type ActiveTab = 'topology' | 'ssh' | 'files' | string
+
+interface ActualUser { username: string; switchId: string; source: 'lab-ssh' | 'swkit-lock'; sessionCount: number; startedAt?: number; clientIp?: string }
+
+/** Switch SSH launcher cards: one per lab switch, with live actual users. */
+function SshGrid({ visible, onOpen }: { visible: boolean; onOpen: (switchId: string) => void }): JSX.Element {
+	const [switches, setSwitches] = useState<Array<{ id: string; name: string; ip: string }>>([])
+	const [users, setUsers] = useState<Record<string, ActualUser[]>>({})
+	useEffect(() => {
+		if (!visible) return
+		let alive = true
+		const load = async (): Promise<void> => {
+			try {
+				const switchList = await fetch('/api/files/me/switches').then((r) => r.json()) as { switches?: Array<{ id: string; name: string; ip: string }> }
+				const usage = await fetch('/api/lab/actual-usage').then((r) => r.json()) as { switches?: Record<string, ActualUser[]> }
+				if (!alive) return
+				setSwitches(switchList.switches ?? [])
+				setUsers(usage.switches ?? {})
+			} catch { /* keep last snapshot */ }
+		}
+		void load()
+		const timer = setInterval(() => { void load() }, 10_000)
+		return () => { alive = false; clearInterval(timer) }
+	}, [visible])
+	return <div className="dm-ssh-grid" aria-label="交换机 SSH 入口">
+		{switches.map((sw) => {
+			const list = users[sw.id] ?? []
+			return <button key={sw.id} className="dm-ssh-card" onClick={() => onOpen(sw.id)}>
+				<header><span className="dm-ssh-badge">SSH</span><strong>{sw.id.toUpperCase()}</strong><code>{sw.ip}</code></header>
+				<div className="dm-ssh-users">
+					{list.length === 0 ? <small>当前无使用者</small> : list.map((item) => <span key={item.source + ':' + item.username} className="dm-ssh-user" title={item.source === 'lab-ssh' ? 'Lab_UI SSH 会话' : 'centec-swkit 锁'}><i />{item.username}{item.sessionCount > 1 ? ' ×' + String(item.sessionCount) : ''}</span>)}
+				</div>
+				<footer><span>打开终端</span>→</footer>
+			</button>
+		})}
+	</div>
+}
 
 function Login({ onLogin }: { onLogin: (name: string) => void }): JSX.Element {
 	const [name, setName] = useState('')
@@ -57,14 +94,17 @@ export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Ele
 		<StyleInjector />
 		<nav className="dm-tabs" aria-label="设备管理工作区">
 			<button className={activeTab === 'topology' ? 'active' : ''} onClick={() => setActiveTab('topology')}><Icon kind="topology"/>物理拓扑</button>
+			<button className={activeTab === 'ssh' ? 'active' : ''} onClick={() => setActiveTab('ssh')}><Icon kind="ssh"/>SSH 连接</button>
 			<button className={activeTab === 'files' ? 'active' : ''} onClick={() => setActiveTab('files')}><Icon kind="files"/>文件传输</button>
-			{sshTabs.map((tab) => <div key={tab.id} className={'dm-ssh-tab' + (activeTab === tab.id ? ' active' : '')}><button className="dm-ssh-main" onClick={() => setActiveTab(tab.id)}><Icon kind="ssh"/>{tab.switchId.toUpperCase()} SSH {tab.index}<i className={sshStatus[tab.id] ?? 'connecting'}/></button><button className="dm-ssh-close" aria-label={'关闭 '+tab.switchId.toUpperCase()+' SSH '+tab.index} onClick={() => closeSsh(tab.id)}>×</button></div>)}
+			{sshTabs.map((tab) => <div key={tab.id} className={'dm-ssh-tab' + (activeTab === tab.id ? ' active' : '')}><button className="dm-ssh-main" onClick={() => setActiveTab(tab.id)}><Icon kind="ssh"/>{tab.switchId}_{tab.index}<i className={sshStatus[tab.id] ?? 'connecting'}/></button><button className="dm-ssh-close" aria-label={'关闭 ' + tab.switchId.toUpperCase() + ' SSH ' + tab.index} onClick={() => closeSsh(tab.id)}>×</button></div>)}
 			<span className="dm-user"><code>{user}</code><button onClick={() => { void logout() }}>退出</button></span>
 		</nav>
 		<main className="dm-workspace">
 			<section className={activeTab === 'topology' ? 'active' : ''}><LabView visible={visible && activeTab === 'topology'} showExperiment={false} currentUsername={user} onOpenSsh={openSsh} onAddSsh={addSsh} sshInstanceCounts={counts}/></section>
+			<section className={activeTab === 'ssh' ? 'active' : ''}><SshGrid visible={visible && activeTab === 'ssh'} onOpen={addSsh}/></section>
 			<section className={activeTab === 'files' ? 'active' : ''}><FileTransferView/></section>
 			{sshTabs.map((tab) => <section key={tab.id} className={activeTab === tab.id ? 'active' : ''}><SshTerminal switchId={tab.switchId} onConnectionChange={(state) => setSshStatus((old) => ({ ...old, [tab.id]: state }))}/></section>)}
 		</main>
+		<TransferQueueBar/>
 	</div>
 }
