@@ -141,12 +141,8 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (path === '/api/lab/experiment' && req.method === 'GET') { json(res, 200, await loadExperimentDefinition()); return true }
   if (path === '/api/lab/topology' && req.method === 'GET') {
     const started = Date.now()
-    const [collected, experimentDefinition] = await Promise.all([getCollection(lab, new URL(req.url ?? '/', 'http://localhost').searchParams.get('fresh') === '1'), loadExperimentDefinition().catch(() => undefined)])
-    const declared = (experimentDefinition?.definition.links ?? [])
-      .filter((link) => link.from.interface !== undefined && link.to.interface !== undefined)
-      .filter((link) => lab.switches.some((sw) => sw.id === link.from.node || sw.name === link.from.node) && lab.switches.some((sw) => sw.id === link.to.node || sw.name === link.to.node))
-      .map((link) => ({ a: { sw: link.from.node, port: link.from.interface ?? '' }, b: { sw: link.to.node, port: link.to.interface ?? '' }, note: [link.bundle, link.speed].filter((part) => part !== undefined).join(' ') }))
-    const result = buildTopology(lab, collected, declared)
+    const collected = await getCollection(lab, new URL(req.url ?? '/', 'http://localhost').searchParams.get('fresh') === '1')
+    const result = buildTopology(lab, collected)
     json(res, 200, { fetchedAt: Date.now(), durationMs: Date.now() - started, cached: false, ...result }); return true
   }
   if (path === '/api/lab/locks' && req.method === 'GET') {
