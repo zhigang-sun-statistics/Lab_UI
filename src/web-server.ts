@@ -8,6 +8,7 @@ import { loadLabConfig } from './config.ts'
 import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription, verifyJumpHost } from './collector.ts'
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
+import { consoleTail as jenkinsConsoleTail, listBuilds as jenkinsListBuilds, listJobs as jenkinsListJobs } from './jenkins/service.ts'
 import { parseSwkitLockUsers, parseSws } from './parser.ts'
 import type { ActualSwitchUser, ActualUsageResponse } from './types.ts'
 import { addAttachment, addMessage, createJob, generateArtifacts, getProvider, listJobs, loadJob, readArtifact, setProvider } from './agent/service.ts'
@@ -119,6 +120,11 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (attachmentMatch !== null && req.method === 'POST') { const input = await body(req); if (typeof input.name !== 'string' || typeof input.mimeType !== 'string' || typeof input.data !== 'string') { json(res, 400, { error: 'name, mimeType and base64 data are required' }); return true } json(res, 200, await addAttachment(session.username, attachmentMatch[1] ?? '', { name: input.name, mimeType: input.mimeType, data: input.data })); return true }
   const messageMatch = path.match(/^\/api\/agent\/me\/jobs\/(job_[a-f0-9-]+)\/messages$/)
   if (messageMatch !== null && req.method === 'POST') { const input = await body(req); json(res, 200, await addMessage(session.username, messageMatch[1] ?? '', typeof input.content === 'string' ? input.content : '', Array.isArray(input.attachmentIds) ? input.attachmentIds.filter((id): id is string => typeof id === 'string') : [])); return true }
+  if (path === '/api/jenkins/jobs' && req.method === 'GET') { try { json(res, 200, await jenkinsListJobs()) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
+  const jenkinsBuildsMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds$/)
+  if (jenkinsBuildsMatch !== null && req.method === 'GET') { try { json(res, 200, await jenkinsListBuilds(decodeURIComponent(jenkinsBuildsMatch[1] ?? ''), Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 15))) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
+  const jenkinsConsoleMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/console$/)
+  if (jenkinsConsoleMatch !== null && req.method === 'GET') { try { json(res, 200, await jenkinsConsoleTail(decodeURIComponent(jenkinsConsoleMatch[1] ?? ''), Number(jenkinsConsoleMatch[2] ?? '0'))) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
   const lab = await labForSession(session)
   if (path === '/api/lab/actual-usage' && req.method === 'GET') { json(res, 200, await getActualUsage(lab)); return true }
   if (path === '/api/files/me/switches' && req.method === 'GET') { json(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return true }

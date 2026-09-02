@@ -22,6 +22,7 @@ import { parseSws } from './parser.ts'
 import type { Context, LabHttpRequest, LabHttpResponse } from './context-types.ts'
 import type { LockLogResponse, LocksResponse, TopologyResponse } from './types.ts'
 import { createDesktopFeatures } from './desktop-host.ts'
+import { consoleTail, listBuilds, listJobs } from './jenkins/service.ts'
 
 export const inject = ['webServer']
 
@@ -206,6 +207,15 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 		},
 	})
 
+	ctx.effect(() => ctx.webServer?.register({ kind: 'exact', path: '/api/jenkins/jobs', handler: withSession(async (_req, res) => { try { writeJson(res, 200, await listJobs()) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } }) }))
+	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/jenkins/jobs/', handler: withSession(async (req, res) => {
+		const path = new URL(req.url ?? '/', 'http://localhost').pathname
+		const buildsMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds$/)
+		if (buildsMatch !== null) { try { writeJson(res, 200, await listBuilds(decodeURIComponent(buildsMatch[1] ?? ''), Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 15))) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return }
+		const consoleMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/console$/)
+		if (consoleMatch !== null) { try { writeJson(res, 200, await consoleTail(decodeURIComponent(consoleMatch[1] ?? ''), Number(consoleMatch[2] ?? '0'))) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return }
+		writeJson(res, 404, { error: 'not found' })
+	}) }))
 	ctx.effect(() => ctx.webServer?.register({ kind: 'exact', path: '/api/lab/actual-usage', handler: withSession(async (req, res, session) => { await desktopFeatures.actualUsage(req, res, await labForSession(session)) }) }))
 	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/files/me', handler: withSession(async (req, res, session) => { await desktopFeatures.files(req, res, await labForSession(session), session.username) }) }))
 	ctx.effect(() => ctx.webServer?.registerUpgrade({ path: '/api/lab/ssh', handler: async (req, socket, head) => {
