@@ -67,11 +67,12 @@ export async function listBuilds(jobName: string, limit = 15): Promise<{ job: st
   return { job: name, builds: data.builds ?? [] }
 }
 
-export async function consoleTail(jobName: string, build: number, maxChars = 12_000): Promise<{ job: string; build: number; text: string }> {
+export async function consoleTail(jobName: string, build: number, maxChars = 20_000_000): Promise<{ job: string; build: number; text: string; truncated: boolean }> {
   const name = safeJobName(jobName)
   if (!Number.isSafeInteger(build) || build < 1) throw new Error('invalid build number')
-  const response = await fetch(baseUrl() + '/job/' + encodeURIComponent(name) + '/' + String(build) + '/consoleText', { headers: { authorization: await authHeader() }, signal: AbortSignal.timeout(15_000) })
+  const response = await fetch(baseUrl() + '/job/' + encodeURIComponent(name) + '/' + String(build) + '/consoleText', { headers: { authorization: await authHeader() }, signal: AbortSignal.timeout(60_000) })
   if (!response.ok) throw new Error('Jenkins HTTP ' + String(response.status))
   const text = await response.text()
-  return { job: name, build, text: text.length > maxChars ? '…(前略)…\n' + text.slice(-maxChars) : text }
+  const truncated = text.length > maxChars
+  return { job: name, build, text: truncated ? '…(日志超过 20 MB,前部已省略)…\n' + text.slice(-maxChars) : text, truncated }
 }
