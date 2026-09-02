@@ -3,7 +3,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url))
-const LOCAL_CREDENTIALS = join(MODULE_DIR, '..', '..', 'jenkins.local.json')
+// The file lives at the package root. From src/jenkins that is ../.., from the
+// bundled lib/ it is simply .. — check both so dev and built layouts both work.
+const CREDENTIAL_CANDIDATES = [join(MODULE_DIR, '..', 'jenkins.local.json'), join(MODULE_DIR, '..', '..', 'jenkins.local.json')]
 
 interface JenkinsCredentials { user: string; token: string }
 let cachedCredentials: JenkinsCredentials | undefined
@@ -13,15 +15,19 @@ const credentials = async (): Promise<JenkinsCredentials | undefined> => {
   const user = process.env.LAB_JENKINS_USER
   const token = process.env.LAB_JENKINS_TOKEN
   if (user !== undefined && token !== undefined && user.length > 0 && token.length > 0) return { user, token }
-  cachedCredentials ??= await readFile(LOCAL_CREDENTIALS, 'utf8').then((text) => {
-    const parsed: unknown = JSON.parse(text)
-    if (typeof parsed !== 'object' || parsed === null) return undefined
-    const record = parsed as Record<string, unknown>
-    return typeof record.user === 'string' && typeof record.token === 'string' && record.user.length > 0 && record.token.length > 0
-      ? { user: record.user, token: record.token }
-      : undefined
-  }).catch(() => undefined)
-  return cachedCredentials
+  if (cachedCredentials !== undefined) return cachedCredentials
+  for (const candidate of CREDENTIAL_CANDIDATES) {
+    const loaded = await readFile(candidate, 'utf8').then((text) => {
+      const parsed: unknown = JSON.parse(text)
+      if (typeof parsed !== 'object' || parsed === null) return undefined
+      const record = parsed as Record<string, unknown>
+      return typeof record.user === 'string' && typeof record.token === 'string' && record.user.length > 0 && record.token.length > 0
+        ? { user: record.user, token: record.token }
+        : undefined
+    }).catch(() => undefined)
+    if (loaded !== undefined) { cachedCredentials = loaded; return loaded }
+  }
+  return undefined
 }
 
 const baseUrl = (): string => (process.env.LAB_JENKINS_URL ?? 'http://192.168.210.244:18080').replace(/\/+$/, '')
