@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { openInteractiveShell, type CollectOutput } from './collector.ts'
 import { parseSwkitLockUsers } from './parser.ts'
-import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, receiveUpload } from './file-transfer/service.ts'
+import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, readRemoteText, receiveUpload, writeRemoteText } from './file-transfer/service.ts'
 import type { LabConfig } from './config.ts'
 import type { ActualSwitchUser, ActualUsageResponse } from './types.ts'
 import type { LabHttpRequest, LabHttpResponse } from './context-types.ts'
@@ -62,6 +62,8 @@ export function createDesktopFeatures(options: DesktopFeaturesOptions): DesktopF
 		const path = url.pathname
 		if (path === '/api/files/me/switches' && req.method === 'GET') { writeJson(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return }
 		if (path === '/api/files/me/remote' && req.method === 'GET') { writeJson(res, 200, await listRemote(lab, url.searchParams.get('switch') ?? '', url.searchParams.get('path') ?? '/home/admin')); return }
+		if (path === '/api/files/me/file' && req.method === 'GET') { writeJson(res, 200, await readRemoteText(lab, url.searchParams.get('switch') ?? '', url.searchParams.get('path') ?? '')); return }
+		if (path === '/api/files/me/file' && req.method === 'PUT') { const input = await readBody(req); if (typeof input.switchId !== 'string' || typeof input.path !== 'string' || typeof input.content !== 'string') { writeJson(res, 400, { error: 'switchId, path and content are required' }); return } writeJson(res, 200, await writeRemoteText(lab, input.switchId, input.path, input.content)); return }
 		if (path === '/api/files/me/remote/directories' && req.method === 'POST') { const input = await readBody(req); if (typeof input.switchId !== 'string' || typeof input.parent !== 'string' || typeof input.name !== 'string') { writeJson(res, 400, { error: 'switchId, parent and name are required' }); return } await makeRemoteDirectory(lab, input.switchId, input.parent, input.name); writeJson(res, 200, { ok: true }); return }
 		if (path === '/api/files/me/transfers' && req.method === 'GET') { writeJson(res, 200, { transfers: listTransfers(owner) }); return }
 		if (path === '/api/files/me/transfers' && req.method === 'POST') { const input = await readBody(req); if (input.direction === 'upload' && typeof input.switchId === 'string' && typeof input.remoteDirectory === 'string' && typeof input.fileName === 'string' && typeof input.size === 'number') { writeJson(res, 201, await createUploadTask(owner, { switchId: input.switchId, remoteDirectory: input.remoteDirectory, fileName: input.fileName, size: input.size, overwrite: input.overwrite === true })); return } if (input.direction === 'download' && typeof input.switchId === 'string' && typeof input.remotePath === 'string') { writeJson(res, 201, await createDownloadTask(owner, { switchId: input.switchId, remotePath: input.remotePath }, lab)); return } writeJson(res, 400, { error: 'invalid transfer request' }); return }

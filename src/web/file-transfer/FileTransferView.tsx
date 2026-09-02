@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './file-transfer.css'
 import { bytes, refreshQueue, setUploadProgress, type TransferTask } from './queue-store.ts'
 
+interface EditSession{switchId:string;path:string;name:string;size:number;content:string;original:string;busy:boolean;error:string}
+const EDIT_MAX_BYTES=1024*1024
+
 interface SwitchItem{id:string;name:string;ip:string}
 interface RemoteEntry{name:string;path:string;type:'file'|'directory'|'link'|'other';size:number;modifiedAt:number;permissions:number}
 interface RemoteListing{path:string;parent:string;entries:RemoteEntry[]}
@@ -10,8 +13,8 @@ type Pane='local'|'remote'
 const MAX_TOTAL_BYTES=2*1024*1024*1024
 const api=async <T,>(url:string,init?:RequestInit):Promise<T>=>{const response=await fetch(url,{...init,headers:{'content-type':'application/json',...(init?.headers??{})}});const value=await response.json().catch(()=>({error:'请求失败'})) as T&{error?:string};if(!response.ok)throw new Error(value.error??'请求失败');return value}
 
-const Icon=({kind}:{kind:'file'|'folder'|'up'|'refresh'|'newFolder'|'upload'|'download'|'close'}):JSX.Element=>{
-  const paths:Record<string,JSX.Element>={file:<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></>,folder:<><path d="M3 7h6l2 2h10v10H3z"/><path d="M3 7V5h6l2 2"/></>,up:<><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></>,refresh:<><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></>,newFolder:<><path d="M3 7h6l2 2h10v10H3z"/><path d="M3 7V5h6l2 2"/><path d="M12 14h4m-2-2v4"/></>,upload:<><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></>,download:<><path d="M12 4v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/></>,close:<><path d="M18 6 6 18M6 6l12 12"/></>}
+const Icon=({kind}:{kind:'file'|'folder'|'up'|'refresh'|'newFolder'|'upload'|'download'|'close'|'edit'}):JSX.Element=>{
+  const paths:Record<string,JSX.Element>={file:<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></>,folder:<><path d="M3 7h6l2 2h10v10H3z"/><path d="M3 7V5h6l2 2"/></>,up:<><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></>,refresh:<><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></>,newFolder:<><path d="M3 7h6l2 2h10v10H3z"/><path d="M3 7V5h6l2 2"/><path d="M12 14h4m-2-2v4"/></>,upload:<><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></>,download:<><path d="M12 4v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/></>,close:<><path d="M18 6 6 18M6 6l12 12"/></>,edit:<><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></>}
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[kind]}</svg>
 }
 
@@ -45,6 +48,7 @@ export function FileTransferView():JSX.Element{
   const [localPath,setLocalPath]=useState('')
   const [localSelected,setLocalSelected]=useState<Set<string>>(new Set())
   const [error,setError]=useState('')
+  const [editor,setEditor]=useState<EditSession|null>(null)
   const filesRef=useRef<HTMLInputElement>(null)
   const folderRef=useRef<HTMLInputElement>(null)
 
@@ -114,6 +118,32 @@ export function FileTransferView():JSX.Element{
     catch(e){setError(String(e instanceof Error?e.message:e))}
   }
 
+  const openEditor=async(entry:RemoteEntry):Promise<void>=>{
+    setError('')
+    setEditor({switchId,path:entry.path,name:entry.name,size:entry.size,content:'',original:'',busy:true,error:''})
+    try{
+      const query='/api/files/me/file?switch='+encodeURIComponent(switchId)+'&path='+encodeURIComponent(entry.path)
+      const result=await fetch(query,{headers:{accept:'application/json'}})
+      const value=await result.json().catch(()=>({error:'读取失败'})) as {content?:string;size?:number;error?:string}
+      if(!result.ok||value.content===undefined)throw new Error(value.error??'读取失败')
+      setEditor({switchId,path:entry.path,name:entry.name,size:value.size??entry.size,content:value.content,original:value.content,busy:false,error:''})
+    }catch(e){setEditor(null);setError(String(e instanceof Error?e.message:e))}
+  }
+  const saveEditor=async():Promise<void>=>{
+    if(editor===null||editor.busy)return
+    setEditor({...editor,busy:true,error:''})
+    try{
+      const response=await fetch('/api/files/me/file',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({switchId:editor.switchId,path:editor.path,content:editor.content})})
+      const value=await response.json().catch(()=>({error:'保存失败'})) as {bytes?:number;error?:string}
+      if(!response.ok)throw new Error(value.error??'保存失败')
+      setEditor((current)=>current===null?null:{...current,original:current.content,size:value.bytes??current.content.length,busy:false})
+      await loadRemote(remote.path,switchId)
+    }catch(e){setEditor((current)=>current===null?null:{...current,busy:false,error:String(e instanceof Error?e.message:e)})}
+  }
+  const closeEditor=():void=>{
+    if(editor!==null&&editor.content!==editor.original&&!window.confirm('有未保存的修改,确定关闭?'))return
+    setEditor(null)
+  }
   const crumbs=remote.path==='/'?['/']:['/',...remote.path.split('/').filter(Boolean)]
   const selectedSwitch=switches.find((item)=>item.id===switchId)
 
@@ -152,6 +182,7 @@ export function FileTransferView():JSX.Element{
                   <span className="ft-name"><i className={item.type}/>{item.name}</span>
                   <code>{item.type==='file'?bytes(item.size):'—'}</code>
                   <time>{item.modifiedAt?new Date(item.modifiedAt).toLocaleString():'—'}</time>
+                  <span className="ft-actions"/>
                 </button>
               ))}
           </div>
@@ -177,6 +208,7 @@ export function FileTransferView():JSX.Element{
                   <span className="ft-name"><i className={entry.type==='directory'?'directory':'file'}/>{entry.name}</span>
                   <code>{entry.type==='file'?bytes(entry.size):'—'}</code>
                   <time>{entry.modifiedAt?new Date(entry.modifiedAt).toLocaleString():'—'}</time>
+                  <span className="ft-actions">{entry.type==='file'&&entry.size<=EDIT_MAX_BYTES&&<i role="button" tabIndex={0} aria-label={'编辑 '+entry.name} title="在线编辑" onClick={(event)=>{event.stopPropagation();void openEditor(entry)}} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.stopPropagation();void openEditor(entry)}}}><Icon kind="edit"/></i>}</span>
                 </button>
               ))}
           </div>
@@ -187,6 +219,27 @@ export function FileTransferView():JSX.Element{
         </>
       )}
     </section>
+
+    {editor!==null&&<div className="ft-editor" role="dialog" aria-label={'编辑 '+editor.name}>
+      <header>
+        <div className="ft-editor-title"><Icon kind="file"/><b>{editor.name}</b><code>{editor.path}</code>{editor.content!==editor.original&&<em className="ft-editor-dirty">未保存</em>}</div>
+        <div className="ft-editor-actions">
+          <button className="ft-ghost" disabled={editor.busy||editor.content===editor.original} onClick={()=>setEditor({...editor,content:editor.original})}>还原</button>
+          <button className="ft-primary" disabled={editor.busy||editor.content===editor.original} onClick={()=>void saveEditor()}>{editor.busy?'保存中…':'保存'}</button>
+          <button className="ft-ghost" onClick={closeEditor}>关闭</button>
+        </div>
+      </header>
+      {editor.error.length>0&&<div className="ft-editor-error" role="alert">{editor.error}</div>}
+      <textarea
+        className="ft-editor-area"
+        value={editor.content}
+        spellCheck={false}
+        aria-label={'编辑 '+editor.name+' 内容'}
+        onChange={(event)=>setEditor({...editor,content:event.target.value})}
+        onKeyDown={(event)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void saveEditor()}}}
+      />
+      <footer><span>{bytes(editor.content.length)} · UTF-8 文本 · Ctrl+S 保存 · 保存后在同目录生成 .bak- 备份</span></footer>
+    </div>}
 
     {error.length>0&&<button className="ft-error" role="alert" aria-label="关闭错误提示" onClick={()=>setError('')}>{error} ×</button>}
   </div>
