@@ -75,7 +75,7 @@ function Login({ onLogin }: { onLogin: (name: string) => void }): JSX.Element {
 
 const Icon = ({ kind }: { kind: 'topology' | 'files' | 'ssh' | 'ci' }): JSX.Element => kind === 'topology' ? <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="6" rx="1.5"/><path d="M7 8h.01M11 8h6M6 15h12M9 12v3m6-3v3"/></svg> : kind === 'files' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3z"/><path d="M3 7V5h7l2 2"/></svg> : kind === 'ci' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/><path d="M12 8v4l3 2"/></svg> : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m5 0h5"/></svg>
 
-export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Element {
+export function DeviceManagementView({ visible = true, showCi = true, onLogout }: { visible?: boolean; showCi?: boolean; onLogout?: () => void }): JSX.Element {
 	const [user, setUser] = useState<string | null>(null)
 	const [checking, setChecking] = useState(true)
 	const [activeTab, setActiveTab] = useState<ActiveTab>('topology')
@@ -99,7 +99,7 @@ export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Ele
 		setSshStatus((old) => { const updated = { ...old }; delete updated[id]; return updated })
 		if (activeTab === id) setActiveTab(next[Math.max(0, index - 1)]?.id ?? 'topology')
 	}, [sshTabs, activeTab])
-	const logout = useCallback(async (): Promise<void> => { setSshTabs([]); setSshStatus({}); setActiveTab('topology'); await fetch('/api/lab/logout', { method: 'POST' }); setUser(null) }, [])
+	const logout = useCallback(async (): Promise<void> => { setSshTabs([]); setSshStatus({}); setActiveTab('topology'); await fetch('/api/lab/logout', { method: 'POST' }); setUser(null); onLogout?.() }, [onLogout])
 	useEffect(() => { void fetch('/api/lab/session').then(async (response) => { if (response.ok) { const session = await response.json() as { username?: string }; if (session.username !== undefined) setUser(session.username) } }).finally(() => setChecking(false)) }, [])
 	if (checking) return <div className="dm-boot"><StyleInjector /><span className="dm-brand-mark">L</span><p>正在连接设备管理服务…</p></div>
 	if (user === null) return <Login onLogin={setUser}/>
@@ -109,7 +109,7 @@ export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Ele
 			<button className={activeTab === 'topology' ? 'active' : ''} onClick={() => setActiveTab('topology')}><Icon kind="topology"/>物理拓扑</button>
 			<button className={activeTab === 'ssh' ? 'active' : ''} onClick={() => setActiveTab('ssh')}><Icon kind="ssh"/>SSH 连接</button>
 			<button className={activeTab === 'files' ? 'active' : ''} onClick={() => setActiveTab('files')}><Icon kind="files"/>文件传输</button>
-			<button className={activeTab === 'ci' ? 'active' : ''} onClick={() => setActiveTab('ci')}><Icon kind="ci"/>CI 构建</button>
+			{showCi && <button className={activeTab === 'ci' ? 'active' : ''} onClick={() => setActiveTab('ci')}><Icon kind="ci"/>CI 构建</button>}
 			{sshTabs.map((tab) => <div key={tab.id} className={'dm-ssh-tab' + (activeTab === tab.id ? ' active' : '')}><button className="dm-ssh-main" onClick={() => setActiveTab(tab.id)}><Icon kind="ssh"/>{tab.switchId}_{tab.index}<i className={sshStatus[tab.id] ?? 'connecting'}/></button><button className="dm-ssh-close" aria-label={'关闭 ' + tab.switchId.toUpperCase() + ' SSH ' + tab.index} onClick={() => closeSsh(tab.id)}>×</button></div>)}
 			<span className="dm-user"><code>{user}</code><button onClick={() => { void logout() }}>退出</button></span>
 		</nav>
@@ -117,7 +117,7 @@ export function DeviceManagementView({ visible }: { visible: boolean }): JSX.Ele
 			<section className={activeTab === 'topology' ? 'active' : ''}><LabView visible={visible && activeTab === 'topology'} showExperiment={false} currentUsername={user} onOpenSsh={openSsh} onAddSsh={addSsh} sshInstanceCounts={counts}/></section>
 			<section className={activeTab === 'ssh' ? 'active' : ''}><SshGrid visible={visible && activeTab === 'ssh'} onOpen={addSsh}/></section>
 			<section className={activeTab === 'files' ? 'active' : ''}><FileTransferView/></section>
-			<section className={activeTab === 'ci' ? 'active' : ''}><JenkinsView visible={visible && activeTab === 'ci'}/></section>
+			{showCi && <section className={activeTab === 'ci' ? 'active' : ''}><JenkinsView visible={visible && activeTab === 'ci'}/></section>}
 			{sshTabs.map((tab) => <section key={tab.id} className={activeTab === tab.id ? 'active' : ''}><SshTerminal switchId={tab.switchId} onConnectionChange={(state) => setSshStatus((old) => ({ ...old, [tab.id]: state }))}/></section>)}
 		</main>
 		<TransferQueueBar/>
