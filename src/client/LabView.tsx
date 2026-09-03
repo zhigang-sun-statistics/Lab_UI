@@ -113,19 +113,18 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const load = useCallback(async (fresh: boolean): Promise<void> => {
 		setBusy(true)
 		try {
-			// Actual usage is an optional enhancement: never let its failure
-			// (e.g. a backend without the route) abort the topology snapshot.
-			const actualUsageTask = currentUsername === undefined ? Promise.resolve(undefined) : fetchActualUsage().catch(() => undefined)
-			const [nextTopology, nextLocks, nextExperiment, nextActualUsage] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined), actualUsageTask])
+			// First paint must not wait for the usage roster: it rides a
+			// separate fire-and-forget fetch after the main snapshot commits.
+			const [nextTopology, nextLocks, nextExperiment] = await Promise.all([fetchTopology(fresh), fetchLocks(), showExperiment ? fetchExperiment() : Promise.resolve(undefined)])
 			if (!alive.current) return
 			// Commit one complete snapshot: panels stay on mock data until port
 			// state, LLDP links and locks have all finished collecting.
 			setTopology(nextTopology)
 			setLocks(nextLocks)
-			if (nextActualUsage !== undefined) setActualUsage(nextActualUsage)
 			if (nextExperiment !== undefined) setExperiment(nextExperiment)
 			setHydrated(true)
 			setError(undefined)
+			if (currentUsername !== undefined) void fetchActualUsage().then((usage) => { if (alive.current) setActualUsage(usage) }).catch(() => undefined)
 		} catch (loadError) {
 			if (!alive.current) return
 			setError(String(loadError instanceof Error ? loadError.message : loadError))
@@ -143,7 +142,7 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 
 	useEffect(() => {
 		if (!visible || currentUsername === undefined) return
-		const timer = setInterval(() => { void fetchActualUsage().then(setActualUsage).catch(() => undefined) }, 10_000)
+		const timer = setInterval(() => { void fetchActualUsage().then(setActualUsage).catch(() => undefined) }, 60_000)
 		return () => { clearInterval(timer) }
 	}, [visible, currentUsername])
 

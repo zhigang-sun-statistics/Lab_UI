@@ -29,12 +29,106 @@ export function SshTerminal({ switchId, onConnectionChange }: { switchId: string
   useEffect(() => {
     if (host.current === null || !/^sw\d+$/.test(switchId)) { onConnectionChange?.('error'); return }
     onConnectionChange?.('connecting')
-    const terminal = new Terminal({ cursorBlink: true, convertEol: true, fontFamily: 'MobaFont, Cascadia Mono, JetBrains Mono, Consolas, monospace', fontSize: 14, lineHeight: 1.2, theme: { background: '#1e1e1e', foreground: '#ececec', cursor: '#b4b4c0', cursorAccent: '#1e1e1e', selectionBackground: '#4a5260', black: '#000000', brightBlack: '#808080', red: '#bb0000', brightRed: '#ff5555', green: '#00bb00', brightGreen: '#55ff55', yellow: '#bbbb00', brightYellow: '#ffff55', blue: '#0000bb', brightBlue: '#5555ff', magenta: '#bb00bb', brightMagenta: '#ff55ff', cyan: '#00bbbb', brightCyan: '#55ffff', white: '#bbbbbb', brightWhite: '#ffffff' } })
+    const terminal = new Terminal({ cursorBlink: true, convertEol: true, scrollback: 5000, fontFamily: 'MobaFont, Cascadia Mono, JetBrains Mono, Consolas, monospace', fontSize: 14, lineHeight: 1.2, theme: { background: '#1e1e1e', foreground: '#ececec', cursor: '#b4b4c0', cursorAccent: '#1e1e1e', selectionBackground: '#4a5260', black: '#000000', brightBlack: '#808080', red: '#bb0000', brightRed: '#ff5555', green: '#00bb00', brightGreen: '#55ff55', yellow: '#bbbb00', brightYellow: '#ffff55', blue: '#0000bb', brightBlue: '#5555ff', magenta: '#bb00bb', brightMagenta: '#ff55ff', cyan: '#00bbbb', brightCyan: '#55ffff', white: '#bbbbbb', brightWhite: '#ffffff' } })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(host.current)
     fitAddon.fit()
     terminal.writeln('\x1b[38;2;98;224;174mSONiC LAB SSH\x1b[0m  connecting to ' + switchId.toUpperCase() + '…')
+    terminal.writeln('\x1b[2m复制: 选中即复制 / Ctrl+C / Ctrl+Ins · 粘贴: 右键 / Ctrl+V\x1b[0m')
+
+    // ---- MobaXterm-style clipboard: copy-on-select, right-click paste, smart Ctrl+C ----
+    const hostEl = host.current
+    let toastTimer = 0
+    const toast = (message: string): void => {
+      hostEl.querySelector('.ssh-toast')?.remove()
+      window.clearTimeout(toastTimer)
+      const el = document.createElement('div')
+      el.className = 'ssh-toast'
+      el.textContent = message
+      hostEl.appendChild(el)
+      toastTimer = window.setTimeout(() => el.remove(), 1500)
+    }
+    // Legacy path for insecure origins (LAN console on http) where navigator.clipboard is absent.
+    const legacyCopy = (text: string): boolean => {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0'
+      document.body.appendChild(area)
+      area.select()
+      let copied = false
+      try { copied = document.execCommand('copy') } catch { copied = false }
+      area.remove()
+      return copied
+    }
+    const copyText = (text: string): void => {
+      if (text.length === 0) return
+      const done = (ok: boolean): void => { toast(ok ? '已复制 ' + String(text.length) + ' 字符' : '复制失败') }
+      if (navigator.clipboard !== undefined) { navigator.clipboard.writeText(text).then(() => done(true), () => done(legacyCopy(text))); return }
+      done(legacyCopy(text))
+    }
+    // Copy whatever the terminal selection holds once a drag finishes.
+    const onMouseUp = (): void => { window.setTimeout(() => { const selection = terminal.getSelection(); if (selection.length > 0) copyText(selection) }, 0) }
+    hostEl.addEventListener('mouseup', onMouseUp)
+
+    // Fallback paste box for when clipboard READ is unavailable or denied:
+    // the user pastes into a plain textarea (works on http) and we forward it.
+    let pasteBox: HTMLDivElement | null = null
+    const closePasteBox = (): void => { pasteBox?.remove(); pasteBox = null; terminal.focus() }
+    const openPasteBox = (): void => {
+      if (pasteBox !== null) { (pasteBox.querySelector('textarea') as HTMLTextAreaElement | null)?.focus(); return }
+      const box = document.createElement('div')
+      box.className = 'ssh-paste-box'
+      const card = document.createElement('div')
+      const title = document.createElement('p')
+      title.textContent = '无法直接读取剪贴板 — 按 Ctrl+V 粘贴到下方,Enter 发送,Esc 取消'
+      const area = document.createElement('textarea')
+      area.placeholder = '待粘贴内容…'
+      const actions = document.createElement('div')
+      actions.className = 'ssh-paste-actions'
+      const cancel = document.createElement('button')
+      cancel.className = 'ssh-cancel'
+      cancel.textContent = '取消'
+      const send = document.createElement('button')
+      send.className = 'ssh-send'
+      send.textContent = '发送到终端'
+      const submit = (): void => { const text = area.value; closePasteBox(); if (text.length > 0) terminal.paste(text) }
+      send.addEventListener('click', submit)
+      cancel.addEventListener('click', closePasteBox)
+      area.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() }
+        if (event.key === 'Escape') { event.preventDefault(); closePasteBox() }
+      })
+      actions.append(cancel, send)
+      card.append(title, area, actions)
+      box.append(card)
+      box.addEventListener('mousedown', (event) => { if (event.target === box) closePasteBox() })
+      pasteBox = box
+      hostEl.appendChild(box)
+      area.focus()
+    }
+    const pasteFromClipboard = async (): Promise<void> => {
+      try {
+        if (navigator.clipboard === undefined) throw new Error('insecure context')
+        const text = await navigator.clipboard.readText()
+        if (text.length === 0) { toast('剪贴板为空'); return }
+        terminal.paste(text)
+      } catch { openPasteBox() }
+    }
+    // Right-click always pastes (PuTTY/MobaXterm muscle memory); Ctrl+V keeps
+    // working through xterm's native paste event.
+    const onContextMenu = (event: MouseEvent): void => { event.preventDefault(); void pasteFromClipboard() }
+    hostEl.addEventListener('contextmenu', onContextMenu)
+
+    terminal.attachCustomKeyEventHandler((event): boolean => {
+      if (event.type !== 'keydown') return true
+      const key = event.key.toLowerCase()
+      if (event.ctrlKey && event.shiftKey && key === 'c') { copyText(terminal.getSelection()); return false }
+      if (event.ctrlKey && !event.shiftKey && key === 'c' && terminal.hasSelection()) { copyText(terminal.getSelection()); return false }
+      if (event.ctrlKey && key === 'insert' && terminal.hasSelection()) { copyText(terminal.getSelection()); return false }
+      return true
+    })
+
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(protocol + '//' + location.host + '/api/lab/ssh?switch=' + encodeURIComponent(switchId))
     socket.onopen = () => { onConnectionChange?.('connected'); socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows })) }
@@ -43,7 +137,15 @@ export function SshTerminal({ switchId, onConnectionChange }: { switchId: string
     terminal.onData((data) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data })) })
     const resize = (): void => { requestAnimationFrame(() => { try { fitAddon.fit(); if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows })) } catch {} }) }
     const observer = new ResizeObserver(resize); observer.observe(host.current); resize()
-    return () => { observer.disconnect(); socket.close(); terminal.dispose() }
+    return () => {
+      observer.disconnect()
+      hostEl.removeEventListener('mouseup', onMouseUp)
+      hostEl.removeEventListener('contextmenu', onContextMenu)
+      window.clearTimeout(toastTimer)
+      closePasteBox()
+      socket.close()
+      terminal.dispose()
+    }
   }, [switchId])
   return <div className="ssh-page"><main ref={host} /></div>
 }

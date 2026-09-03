@@ -5,6 +5,7 @@
  * top target handle and bottom source handle so vertically stacked devices
  * can draw cables from the exact physical port.
  */
+import { useEffect, useRef, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 
 export interface FrontPort {
@@ -63,8 +64,25 @@ function FacePort({ port, row, onClick }: { port: FrontPort; row: 'top' | 'botto
 	)
 }
 
+const SSH_CONFIRM_TIMEOUT_MS = 3000
+
 export function SwitchNode({ data }: NodeProps): JSX.Element {
 	const sw = data as SwitchNodeData
+	// Two-step SSH open: the first click only arms the button (3s window), the
+	// second click confirms. Prevents accidental terminal opens on the panel.
+	const [sshArmed, setSshArmed] = useState(false)
+	const sshArmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+	useEffect(() => () => { if (sshArmTimer.current !== undefined) clearTimeout(sshArmTimer.current) }, [])
+	const requestSsh = (): void => {
+		if (!sshArmed) {
+			setSshArmed(true)
+			sshArmTimer.current = setTimeout(() => setSshArmed(false), SSH_CONFIRM_TIMEOUT_MS)
+			return
+		}
+		if (sshArmTimer.current !== undefined) clearTimeout(sshArmTimer.current)
+		setSshArmed(false)
+		sw.onSsh?.()
+	}
 	const evenPorts = sw.ports.filter((port) => port.slot % 2 === 0)
 	const oddPorts = sw.ports.filter((port) => port.slot % 2 === 1)
 	return (
@@ -72,7 +90,7 @@ export function SwitchNode({ data }: NodeProps): JSX.Element {
 			<div className="lab-device-caption">
 				<span className={'lab-sw-dot' + (sw.reachable ? '' : ' down')} />
 				<strong>{sw.name}</strong>
-				{sw.onSsh !== undefined && <button className="lab-ssh-button" title={'打开 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); sw.onSsh?.() }} aria-label={'打开 ' + sw.name + ' SSH 终端'}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m5 0h5"/></svg></button>}
+				{sw.onSsh !== undefined && <button className={'lab-ssh-button' + (sshArmed ? ' confirm' : '')} title={sshArmed ? '再次点击确认连接 ' + sw.name : '打开 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); requestSsh() }} aria-label={sshArmed ? '再次点击确认连接 ' + sw.name : '打开 ' + sw.name + ' SSH 终端'}>{sshArmed ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4 10-10"/></svg> : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m5 0h5"/></svg>}</button>}
 				{sw.onSshAdd !== undefined && <button className="lab-ssh-add" title={'再打开一个 ' + sw.name + ' SSH 终端'} onClick={(event) => { event.stopPropagation(); sw.onSshAdd?.() }} aria-label={'新增 ' + sw.name + ' SSH 终端'}>+</button>}
 				<span className="lab-sw-group">{'G-' + sw.group}</span>
 				<span className="lab-device-ip">{sw.ip}</span>

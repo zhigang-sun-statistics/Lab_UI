@@ -199,11 +199,13 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 	}))
 
 	const desktopFeatures = createDesktopFeatures({
-		getCollected: async (labForCollect) => {
-			if (latestCollection !== undefined && Date.now() - latestCollection.at < LOCKS_TTL_MS) return latestCollection.value
-			const value = await collect(labForCollect, timeoutMs)
-			latestCollection = { at: Date.now(), value }
-			return value
+		// Usage must never trigger a fresh collection: a full lab probe
+		// competes with interactive SSH channel opens on the jump host. Serve
+		// the most recent topology snapshot (5 min window); before the first
+		// snapshot the response carries live sessions only.
+		getCollected: async () => {
+			if (latestCollection !== undefined && Date.now() - latestCollection.at < 300_000) return latestCollection.value
+			return { locks: { raw: '' }, lockUsers: { raw: '' }, switches: new Map() }
 		},
 	})
 

@@ -43,8 +43,10 @@ const getActualUsage = async (lab: Awaited<ReturnType<typeof loadLabConfig>>): P
     list.push(item)
   }
   for (const session of activeSshSessions.values()) merge({ username: session.username, switchId: session.switchId, source: 'lab-ssh', sessionCount: 1, startedAt: session.startedAt })
-  const collected = await getCollection(lab)
-  for (const lock of parseSwkitLockUsers(collected.lockUsers.raw)) {
+  // Usage never triggers a collection; reuse a recent topology snapshot so
+  // interactive SSH opens stay fast on the jump host.
+  const lockUsersRaw = collectionCache !== undefined && Date.now() - collectionCache.at < 300_000 ? collectionCache.value.lockUsers.raw : ''
+  for (const lock of parseSwkitLockUsers(lockUsersRaw)) {
     // Lock content is `epoch|client_ip|target` where target is a switch name
     // (sw1 / Switch-2), a legacy group letter (A/B), or absent = whole lab.
     const name = lock.switchName?.trim() ?? ''

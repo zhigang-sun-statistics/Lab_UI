@@ -96,6 +96,8 @@
 .lab-ssh-button { width:22px; height:20px; padding:2px; display:grid; place-items:center; border:1px solid #3b4b57; border-radius:3px; background:#121a21; color:#66d7ab; cursor:pointer; }
 .lab-ssh-button:hover { border-color:#61dfad; background:#183128; box-shadow:0 0 8px rgba(79,217,164,.24); }
 .lab-ssh-button svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.lab-ssh-button.confirm { border-color:#4ed89f; background:rgba(34,197,94,.22); color:#a5f3c9; box-shadow:0 0 10px rgba(78,216,159,.45); }
+.lab-ssh-button.confirm svg { stroke-width:2.4; }
 .lab-ssh-add { width:20px; height:20px; padding:0; display:grid; place-items:center; border:1px solid #36434e; border-radius:3px; background:#10171d; color:#7e918f; font:600 15px/1 ui-monospace,monospace; cursor:pointer; }
 .lab-ssh-add:hover { border-color:#61dfad; color:#72dfb5; background:#173026; }
 .lab-face-port[role=button] { cursor:pointer; }

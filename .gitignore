@@ -6,3 +6,4 @@ local-preview.*.log
 centec-swkit/
 centec-swkit.tar.gz
 jenkins.local.json
+lab.local.json
