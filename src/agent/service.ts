@@ -37,6 +37,30 @@ export async function listJobs(username: string): Promise<AgentJob[]> { await en
 export async function createJob(username: string, title?: string): Promise<AgentJob> { await ensureUser(username); const now = Date.now(); const job: AgentJob = { id: 'job_' + randomUUID(), owner: username, title: title?.trim() || '新建拓扑任务', status: 'created', createdAt: now, updatedAt: now, messages: [{ id: randomUUID(), role: 'assistant', content: '请上传实验文档、拓扑截图或直接描述需求。文件准备好后，我会结合当前实机拓扑生成 experiment.yml 和每台交换机的手工配置文件。', createdAt: now, attachmentIds: [] }], attachments: [], artifacts: [] }; await saveJob(job); return job }
 export { loadJob }
 
+export interface ProviderChatResult { provider: string; model: string; content: string }
+
+/** One-shot chat completion through the user's stored provider (DeepSeek or OpenAI-compatible). */
+export async function callProviderChat(username: string, system: string, prompt: string, options?: { maxTokens?: number; timeoutMs?: number }): Promise<ProviderChatResult> {
+	await ensureUser(username)
+	const stored = await readJson<StoredProvider>(join(userRoot(username), 'provider.json')).catch(() => undefined)
+	if (stored === undefined || stored.provider === 'mock') throw new Error('当前模型为 Mock,无法进行长日志分析。请在 Lab_UI Web 的 Agent 工作台配置 DeepSeek 或 OpenAI 兼容模型。')
+	const apiKey = decryptProviderKey(stored)
+	if (apiKey === undefined) throw new Error('模型 API Key 未配置,无法进行分析。请在 Agent 工作台填写并保存。')
+	const base = (stored.baseUrl?.trim() || (stored.provider === 'deepseek' ? 'https://api.deepseek.com' : '')).replace(/\/+$/, '')
+	if (base.length === 0) throw new Error('模型 baseUrl 未配置。')
+	const response = await fetch(base + '/chat/completions', {
+		method: 'POST',
+		headers: { authorization: 'Bearer ' + apiKey, 'content-type': 'application/json' },
+		body: JSON.stringify({ model: stored.model, messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }], stream: false, temperature: 0.2, max_tokens: options?.maxTokens ?? 8192 }),
+		signal: AbortSignal.timeout(options?.timeoutMs ?? 300_000),
+	})
+	if (!response.ok) throw new Error('模型 HTTP ' + String(response.status) + ': ' + (await response.text().catch(() => '')).slice(0, 300))
+	const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
+	const content = data.choices?.[0]?.message?.content
+	if (typeof content !== 'string' || content.trim().length === 0) throw new Error('模型返回内容为空')
+	return { provider: stored.provider, model: stored.model, content }
+}
+
 const safeName = (name: string): string => name.replace(/[\/:*?"<>|\r\n]/g, '_').slice(0, 120) || 'attachment.bin'
 export async function addAttachment(username: string, jobId: string, input: { name: string; mimeType: string; data: string }): Promise<AgentJob> { const job = await loadJob(username, jobId); if (!ALLOWED_MIME.has(input.mimeType)) throw new Error('unsupported attachment type'); const bytes = Buffer.from(input.data, 'base64'); if (bytes.length === 0 || bytes.length > MAX_ATTACHMENT_BYTES) throw new Error('attachment must be between 1 byte and 12 MB'); const attachment: AgentAttachment = { id: 'att_' + randomUUID(), name: safeName(input.name), mimeType: input.mimeType, size: bytes.length, status: 'ready', createdAt: Date.now() }; const dir = join(jobRoot(username, jobId), 'attachments'); await mkdir(dir, { recursive: true }); await writeFile(join(dir, attachment.id + '-' + attachment.name), bytes); job.attachments.push(attachment); if (job.title === '新建拓扑任务') job.title = attachment.name.replace(/\.[^.]+$/, ''); await saveJob(job); return job }
 

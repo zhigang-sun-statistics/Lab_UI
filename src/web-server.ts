@@ -9,6 +9,7 @@ import { collect, collectLockLog, openInteractiveShell, setInterfaceDescription,
 import { buildTopology } from './topology.ts'
 import { loadExperimentDefinition } from './experiment.ts'
 import { consoleTail as jenkinsConsoleTail, listBuilds as jenkinsListBuilds, listJobs as jenkinsListJobs } from './jenkins/service.ts'
+import { analyzeBuild as jenkinsAnalyzeBuild, readReport as jenkinsReadReport } from './jenkins/analyze.ts'
 import { parseSwkitLockUsers, parseSws } from './parser.ts'
 import type { ActualSwitchUser, ActualUsageResponse } from './types.ts'
 import { addAttachment, addMessage, createJob, generateArtifacts, getProvider, listJobs, loadJob, readArtifact, setProvider } from './agent/service.ts'
@@ -125,6 +126,16 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (path === '/api/jenkins/jobs' && req.method === 'GET') { try { json(res, 200, await jenkinsListJobs()) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
   const jenkinsBuildsMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds$/)
   if (jenkinsBuildsMatch !== null && req.method === 'GET') { try { json(res, 200, await jenkinsListBuilds(decodeURIComponent(jenkinsBuildsMatch[1] ?? ''), Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 15))) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
+  const jenkinsAnalyzeMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/analyze$/)
+  if (jenkinsAnalyzeMatch !== null && req.method === 'POST') { try { json(res, 200, await jenkinsAnalyzeBuild(session.username, decodeURIComponent(jenkinsAnalyzeMatch[1] ?? ''), Number(jenkinsAnalyzeMatch[2] ?? '0'))) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
+  const jenkinsReportMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/report$/)
+  if (jenkinsReportMatch !== null && req.method === 'GET') {
+    const report = await jenkinsReadReport(decodeURIComponent(jenkinsReportMatch[1] ?? ''), Number(jenkinsReportMatch[2] ?? '0'))
+    if (report === undefined) { json(res, 404, { error: 'report not generated yet' }); return true }
+    res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(report.meta.job + '-build-' + String(report.meta.build) + '-分析报告.md'), 'cache-control': 'no-store' })
+    res.end(report.markdown)
+    return true
+  }
   const jenkinsConsoleMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/console$/)
   if (jenkinsConsoleMatch !== null && req.method === 'GET') { try { json(res, 200, await jenkinsConsoleTail(decodeURIComponent(jenkinsConsoleMatch[1] ?? ''), Number(jenkinsConsoleMatch[2] ?? '0'))) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
   const lab = await labForSession(session)

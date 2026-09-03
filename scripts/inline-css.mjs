@@ -33,6 +33,7 @@ const deviceSources = [
   ['ssh', readIfExists(join(root, 'src', 'ssh', 'ssh.css'))],
   ['jenkins', readIfExists(join(root, 'src', 'web', 'jenkins', 'jenkins.css'))],
   ['xterm', readIfExists(join(root, 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'))],
+  ['jenkins', readIfExists(join(root, 'src', 'web', 'jenkins', 'jenkins.css'))],
 ]
 const deviceParts = []
 for (const [name, css] of deviceSources) {

@@ -23,6 +23,7 @@ import type { Context, LabHttpRequest, LabHttpResponse } from './context-types.t
 import type { LockLogResponse, LocksResponse, TopologyResponse } from './types.ts'
 import { createDesktopFeatures } from './desktop-host.ts'
 import { consoleTail, listBuilds, listJobs } from './jenkins/service.ts'
+import { analyzeBuild, readReport } from './jenkins/analyze.ts'
 
 export const inject = ['webServer']
 
@@ -211,10 +212,20 @@ export function apply(ctx: Context, config?: LabPluginConfig): void {
 
 	ctx.effect(() => ctx.webServer?.register({ kind: 'exact', path: '/api/jenkins/jobs', handler: withSession(async (_req, res) => { try { writeJson(res, 200, await listJobs()) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } }) }))
 	// Prefix routes must NOT end with '/': the matcher checks startsWith(prefix + '/').
-	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/jenkins/jobs', handler: withSession(async (req, res) => {
+	ctx.effect(() => ctx.webServer?.register({ kind: 'prefix', path: '/api/jenkins/jobs', handler: withSession(async (req, res, session) => {
 		const path = new URL(req.url ?? '/', 'http://localhost').pathname
 		const buildsMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds$/)
 		if (buildsMatch !== null) { try { writeJson(res, 200, await listBuilds(decodeURIComponent(buildsMatch[1] ?? ''), Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 15))) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return }
+		const analyzeMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/analyze$/)
+		if (analyzeMatch !== null && req.method === 'POST') { try { writeJson(res, 200, await analyzeBuild(session.username, decodeURIComponent(analyzeMatch[1] ?? ''), Number(analyzeMatch[2] ?? '0'))) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return }
+		const reportMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/report$/)
+		if (reportMatch !== null && req.method === 'GET') {
+			const report = await readReport(decodeURIComponent(reportMatch[1] ?? ''), Number(reportMatch[2] ?? '0'))
+			if (report === undefined) { writeJson(res, 404, { error: 'report not generated yet' }); return }
+			res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(report.meta.job + '-build-' + String(report.meta.build) + '-分析报告.md'), 'cache-control': 'no-store' })
+			res.end(report.markdown)
+			return
+		}
 		const consoleMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/console$/)
 		if (consoleMatch !== null) { try { writeJson(res, 200, await consoleTail(decodeURIComponent(consoleMatch[1] ?? ''), Number(consoleMatch[2] ?? '0'))) } catch (jenkinsError) { writeJson(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return }
 		writeJson(res, 404, { error: 'not found' })
