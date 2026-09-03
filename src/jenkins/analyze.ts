@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { consoleTail } from './service.ts'
+import { consoleTail, listBuilds } from './service.ts'
 import { callProviderChat } from '../agent/service.ts'
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url))
@@ -46,23 +46,27 @@ const selectForModel = (text: string): string => {
 
 const SYSTEM_PROMPT = [
 	'你是资深 SONiC / OpenNetworking 构建工程师,负责分析 CI 构建失败日志。',
-	'只依据日志中的证据做判断,不得臆造日志中不存在的内容。',
-	'输出为 Markdown 格式的专业中文报告,章节固定、结论明确、建议可执行。',
+	'纪律:',
+	'- 只依据日志中的证据判断,禁止臆造;证据不足时必须明确说明“日志中无法定位”,并列出需要补充的日志范围。',
+	'- 优先找“第一个改变构建走向的错误”,而不是最后一条错误(失败常由级联引起)。',
+	'- 输出为 Markdown 专业中文报告:章节固定、语言精炼、结论先行、建议可直接执行。',
+	'- 禁止复述与失败无关的日志内容,禁止输出空洞的套话。',
 ].join('\n')
 
-const reportPrompt = (job: string, build: number, log: string): string => [
-	'分析以下 Jenkins 构建失败日志并生成报告。',
-	'任务: ' + job + '   构建 #' + String(build),
+const reportPrompt = (job: string, build: number, trend: string, log: string): string => [
+	'分析以下 Jenkins 构建失败日志,生成可供工程师直接执行的排查修复报告。',
+	'任务: ' + job + '   构建 #' + String(build) + '   ' + trend,
 	'',
-	'报告必须包含以下章节(使用 Markdown 标题):',
-	'## 1. 结论速览 — 表格:任务/构建号/失败阶段/根因一句话/置信度(高中低)',
-	'## 2. 失败定位 — 首个致命错误出现的阶段、命令、关键日志行(引用原文)',
-	'## 3. 根因分析 — 主因与次因分开,每条附日志证据',
-	'## 4. 错误分类 — 编译/链接/依赖/环境/网络/资源/测试/其他,标注命中项',
-	'## 5. 修复建议 — 按优先级排列的可执行步骤,涉及命令时给出具体命令',
-	'## 6. 验证与回归 — 修复后如何确认',
-	'## 7. 预防建议 — CI 或工程层面的改进',
+	'输出要求(使用 Markdown,章节编号固定):',
+	'## 1. 结论速览 — 表格:任务 / 构建号 / 失败阶段 / 根因一句话 / 置信度(高·中·低)',
+	'## 2. 失败定位 — 第一个致命错误:所在阶段、执行的命令、引用关键日志原文(不超过 5 行)',
+	'## 3. 根因分析 — 主因在前、次因在后;每条结论必须紧跟日志证据(引用原文片段)',
+	'## 4. 错误分类 — 从 编译 / 链接 / 依赖 / 环境 / 网络 / 资源 / 测试 / 其他 中标注命中项',
+	'## 5. 修复建议 — 按优先级列出可执行步骤;涉及命令时写出完整命令',
+	'## 6. 验证与回归 — 修复后如何确认问题消除',
+	'## 7. 预防建议 — CI 流程或工程层面的改进措施',
 	'## 8. 附录:关键日志片段 — 不超过 30 行',
+	'注意:日志经过截取(头部/错误上下文/尾部),中间可能省略;引用日志时保持原文,不要改写。',
 	'',
 	'===== 构建日志(已截取关键部分) =====',
 	log,
@@ -83,11 +87,26 @@ export async function readReport(job: string, build: number): Promise<CiReport |
 	return { meta, markdown }
 }
 
+const trendOf = async (job: string, build: number): Promise<string> => {
+	try {
+		const { builds } = await listBuilds(job, 50)
+		const index = builds.findIndex((item) => item.number === build)
+		if (index < 0) return '构建趋势未知'
+		const failedRuns = builds.slice(index).filter((item) => item.result === 'FAILURE' || item.result === 'UNSTABLE').length
+		const prev = builds[index + 1]
+		if (failedRuns > 1) return '该任务已连续失败 ' + String(failedRuns) + ' 次(本次为其中之一)'
+		if (prev !== undefined && (prev.result === 'SUCCESS' || prev.result === null)) return '本次为新一轮失败(上一次构建成功)'
+		return '本次构建失败'
+	} catch {
+		return '构建趋势未知'
+	}
+}
+
 export async function analyzeBuild(username: string, job: string, build: number): Promise<CiReport> {
 	const started = Date.now()
-	const log = await consoleTail(job, build)
+	const [log, trend] = await Promise.all([consoleTail(job, build), trendOf(job, build)])
 	const input = selectForModel(log.text)
-	const chat = await callProviderChat(username, SYSTEM_PROMPT, reportPrompt(job, build, input), { maxTokens: 8192 })
+	const chat = await callProviderChat(username, SYSTEM_PROMPT, reportPrompt(job, build, trend, input), { maxTokens: 8192 })
 	const meta: CiReportMeta = { job, build, generatedAt: Date.now(), provider: chat.provider, model: chat.model, logChars: log.text.length, inputChars: input.length, durationMs: Date.now() - started }
 	const header = [
 		'# 构建失败分析报告 — ' + job + ' #' + String(build),
@@ -95,6 +114,7 @@ export async function analyzeBuild(username: string, job: string, build: number)
 		'- 生成时间: ' + new Date(meta.generatedAt).toLocaleString('zh-CN'),
 		'- 分析模型: ' + chat.model + ' (' + chat.provider + ')',
 		'- 原始日志: ' + String(Math.round(meta.logChars / 1024)) + ' KB,送入模型: ' + String(Math.round(meta.inputChars / 1024)) + ' KB' + (log.truncated ? '(原日志超限已截尾)' : ''),
+		'- 构建趋势: ' + trend,
 		'- 分析耗时: ' + String(Math.round(meta.durationMs / 1000)) + ' 秒',
 		'',
 		'---',
