@@ -101,6 +101,7 @@ export function JenkinsView({ visible }: { visible: boolean }): JSX.Element {
 			<code>{server}</code><span className="jk-flex"/><span className="jk-refresh">{rows.length} 条构建 · 失败构建自动生成分析报告</span>
 		</header>
 		{error.length>0&&<div className="jk-error" role="alert">{error}</div>}
+		{Object.values(genError).some((msg)=>msg.includes('模型')||msg.includes('Mock'))&&<div className="jk-model-hint" role="alert">分析模型未配置:请先在 Lab_UI Web(8889)的「Agent 工作台 → 模型配置」设置 DeepSeek 或 OpenAI 兼容模型与 API Key,保存后回到本页点击「重试」即可批量生成历史失败报告。</div>}
 		<section className="jk-history" aria-label="Jenkins 构建历史">
 			<div className="jk-history-head"><span>状态</span><span>构建</span><span>时间</span><span>结果变化</span><span>分析报告</span></div>
 			<div className="jk-history-body">
