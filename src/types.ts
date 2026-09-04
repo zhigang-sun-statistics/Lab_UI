@@ -45,7 +45,7 @@ export interface SwitchState {
 }
 
 /** How a link became known. */
-export type LinkSource = 'lldp' | 'static' | 'both'
+export type LinkSource = 'lldp' | 'static' | 'both' | 'manual'
 
 /** One cable between two switch ports. */
 export interface LinkState {
@@ -80,6 +80,26 @@ export interface ActualSwitchUser {
 export interface ActualUsageResponse {
 	fetchedAt: number
 	switches: Record<string, ActualSwitchUser[]>
+}
+
+/** One recorded SSH session (audit trail entry, metadata only). */
+export interface AuditSessionMeta {
+	id: string
+	username: string
+	switchId: string
+	startedAt: number
+	endedAt?: number
+	bytesIn: number
+	bytesOut: number
+	outputCapped: boolean
+	closed: boolean
+}
+
+/** One audit event inside a session JSONL file. */
+export interface AuditEvent {
+	at: number
+	k: 'open' | 'in' | 'out' | 'cap' | 'close'
+	d?: string
 }
 
 /** One lock group (A/B) parsed from the jumphost `sws` output. */

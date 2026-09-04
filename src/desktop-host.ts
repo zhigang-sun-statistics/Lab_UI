@@ -3,6 +3,7 @@ import type { Duplex } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { openInteractiveShell, type CollectOutput } from './collector.ts'
+import { startSession } from './audit/service.ts'
 import { parseSwkitLockUsers } from './parser.ts'
 import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, readRemoteText, receiveUpload, writeRemoteText } from './file-transfer/service.ts'
 import type { LabConfig } from './config.ts'
@@ -81,14 +82,15 @@ export function createDesktopFeatures(options: DesktopFeaturesOptions): DesktopF
 		const switchId = url.searchParams.get('switch') ?? ''
 		if (!lab.switches.some((sw) => sw.id === switchId)) { (socket as Duplex).destroy(); return }
 		wss.handleUpgrade(req as IncomingMessage, socket as Duplex, Buffer.from(head), (ws) => {
-			void openInteractiveShell(lab, switchId, 120, 34, (data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() }).then((shell) => {
+		const audit = startSession(lab.jumphost.username, switchId)
+			void openInteractiveShell(lab, switchId, 120, 34, (data) => { audit.output(data); if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() }).then((shell) => {
 				const id = randomBytes(16).toString('hex')
 				activeSshSessions.set(id, { id, username: lab.jumphost.username, switchId, startedAt: Date.now() })
 				if (ws.readyState !== ws.OPEN) { activeSshSessions.delete(id); shell.close() }
 				const wsPing = setInterval(() => { if (ws.readyState === ws.OPEN) ws.ping() }, 30_000)
-				ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') shell.write(message.data); if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
-				ws.on('close', () => { clearInterval(wsPing); activeSshSessions.delete(id); shell.close() })
-			}).catch((error) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
+				ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') { audit.input(message.data); shell.write(message.data) }; if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
+				ws.on('close', () => { clearInterval(wsPing); activeSshSessions.delete(id); audit.end(); shell.close() })
+			}).catch((error) => { audit.end(); if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
 		})
 	}
 

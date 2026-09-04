@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type NodeMouseHandler } from '@xyflow/react'
-import { fetchActualUsage, fetchExperiment, fetchLockLog, fetchLocks, fetchTopology } from './api.ts'
+import { fetchActualUsage, fetchExperiment, fetchLockLog, fetchLocks, fetchTopology, registerManualLink, removeManualLink } from './api.ts'
 import { CableEdge } from './CableEdge.tsx'
 import { ExperimentView } from './ExperimentView.tsx'
 import { StyleInjector } from './StyleInjector.tsx'
@@ -40,6 +40,7 @@ const timeLabel = (epoch: number): string => new Date(epoch).toLocaleTimeString(
 
 const edgeStyle = (source: LinkState['source']): { stroke: string; strokeDasharray?: string; strokeWidth: number } => {
 	if (source === 'static') return { stroke: '#788294', strokeDasharray: '7 5', strokeWidth: 1.5 }
+	if (source === 'manual') return { stroke: '#eab308', strokeDasharray: '5 4', strokeWidth: 1.8 }
 	if (source === 'both') return { stroke: '#32c878', strokeWidth: 2.2 }
 	return { stroke: '#4d96ff', strokeWidth: 2 }
 }
@@ -103,6 +104,11 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const [selected, setSelected] = useState<string>()
 	const [selectedPort, setSelectedPort] = useState<string>()
 	const [busy, setBusy] = useState(false)
+	const [linkBusy, setLinkBusy] = useState(false)
+	const [linkTargetSw, setLinkTargetSw] = useState('sw2')
+	const [linkTargetPort, setLinkTargetPort] = useState('Ethernet0')
+	const [linkNote, setLinkNote] = useState('')
+	const [linkError, setLinkError] = useState<string>()
 	const alive = useRef(true)
 
 	useEffect(() => {
@@ -224,6 +230,23 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 	const selectedLinks = topology?.links.filter((l) => l.a.sw === selected || l.b.sw === selected) ?? []
 	const selectedPortState = selectedSw?.ports.find((port) => port.name === selectedPort)
 	const selectedActualUsers = selectedSw === undefined ? [] : actualUsage.switches[selectedSw.id] ?? []
+	const registerLink = useCallback(async (): Promise<void> => {
+		if (selectedSw === undefined || selectedPortState === undefined) return
+		setLinkBusy(true)
+		setLinkError(undefined)
+		try {
+			await registerManualLink({ aSw: selectedSw.id, aPort: selectedPortState.name, bSw: linkTargetSw, bPort: linkTargetPort, note: linkNote })
+			setLinkNote('')
+			await load(false)
+		} catch (linkErrorCaught) { setLinkError(String(linkErrorCaught instanceof Error ? linkErrorCaught.message : linkErrorCaught)) } finally { setLinkBusy(false) }
+	}, [selectedSw, selectedPortState, linkTargetSw, linkTargetPort, linkNote, load])
+
+	const removeLink = useCallback(async (id: string): Promise<void> => {
+		setLinkBusy(true)
+		setLinkError(undefined)
+		try { await removeManualLink(id); await load(false) } catch (linkErrorCaught) { setLinkError(String(linkErrorCaught instanceof Error ? linkErrorCaught.message : linkErrorCaught)) } finally { setLinkBusy(false) }
+	}, [load])
+
 	const editDescription = useCallback(async (): Promise<void> => {
 		if (selectedSw === undefined || selectedPortState === undefined) return
 		const next = window.prompt('修改端口描述', selectedPortState.description ?? '')
@@ -288,11 +311,28 @@ export function LabView({ visible, showExperiment = true, onOpenSsh, onAddSsh, s
 						{selectedSw.version !== undefined && <p className="lab-mono" style={{ fontSize: 11 }}>{selectedSw.version}</p>}
 						<section className="lab-actual-usage" aria-label="交换机当前实际使用者"><header><div><small>LIVE USAGE</small><strong>当前实际使用者</strong></div><span>{selectedActualUsers.reduce((sum, item) => sum + item.sessionCount, 0)} 个会话</span></header>{selectedActualUsers.length === 0 ? <p className="lab-actual-empty">当前未采集到活动会话</p> : <div className="lab-actual-list">{selectedActualUsers.map((item) => <article key={item.source + ':' + item.username + ':' + (item.clientIp ?? '')}><span className="lab-actual-avatar">{item.username.slice(0, 2).toUpperCase()}</span><div><b>{item.username}</b><small>{item.source === 'lab-ssh' ? 'Lab_UI SSH' : 'centec-swkit'} · {item.sessionCount} 个会话{item.clientIp !== undefined ? ' · ' + item.clientIp : ''}</small></div><span className="lab-actual-live"><i />在线</span></article>)}</div>}<footer>数据来自活动 SSH 会话和跳板机 swkit 锁文件，不是人工预约。</footer></section>
 						{selectedPortState !== undefined && <div className="lab-port-focus"><div className="lab-port-focus-head"><div><span className={'lab-port-state ' + (selectedPortState.oper === 'up' ? 'up' : 'down')} /> <strong>{selectedPortState.name}</strong><small>{selectedPortState.alias ?? ''}</small></div><button className="lab-btn" onClick={() => void editDescription()}>修改描述</button></div><div className="lab-port-detail-grid"><p><span className="kv">状态</span><b>{selectedPortState.admin ?? '—'} / {selectedPortState.oper ?? '—'}</b></p><p><span className="kv">速率</span><b>{selectedPortState.speed ?? '—'}</b></p><p><span className="kv">MTU</span><b>{selectedPortState.mtu ?? '—'}</b></p><p><span className="kv">FEC</span><b>{selectedPortState.fec ?? '—'}</b></p><p><span className="kv">模式</span><b>{selectedPortState.vlan ?? '—'}</b></p><p><span className="kv">光模块</span><b>{selectedPortState.type ?? 'N/A'}</b></p></div><p><span className="kv">描述</span>{selectedPortState.description ?? '—'}</p><p><span className="kv">IP 地址</span>{selectedPortState.ipAddresses?.join(', ') ?? '—'}</p><p><span className="kv">LLDP 邻居</span>{selectedPortState.lldpPeer !== undefined ? endpointLabel(selectedPortState.lldpPeer.device, selectedPortState.lldpPeer.port) : selectedPortState.oper === 'up' ? <span title="端口已连通，但对端设备不运行或不回应 LLDP（服务器 / 测试仪常见）">已连线 · 对端未上报 LLDP</span> : '—'}</p><div className="lab-port-traffic"><div><span>RX</span><strong>{selectedPortState.counters?.rxBps ?? '0.00 B/s'}</strong><small>{selectedPortState.counters?.rxPps ?? '0.00/s'} · ERR {selectedPortState.counters?.rxErr ?? '0'} · DROP {selectedPortState.counters?.rxDrop ?? '0'}</small></div><div><span>TX</span><strong>{selectedPortState.counters?.txBps ?? '0.00 B/s'}</strong><small>{selectedPortState.counters?.txPps ?? '0.00/s'} · ERR {selectedPortState.counters?.txErr ?? '0'} · DROP {selectedPortState.counters?.txDrop ?? '0'}</small></div></div></div>}
+
+						{selectedPortState !== undefined && (
+						<div className="lab-link-add">
+							<header><small>REGISTER CABLE</small><strong>{'登记链路 ' + endpointLabel(selectedSw.id, selectedPortState.name) + ' →'}</strong></header>
+							<div className="lab-link-add-row">
+								<select value={linkTargetSw} onChange={(event) => setLinkTargetSw(event.target.value)} aria-label="对端交换机">
+									{topology.switches.filter((sw) => sw.id !== selectedSw.id).map((sw) => <option key={sw.id} value={sw.id}>{sw.name}</option>)}
+								</select>
+								<select value={linkTargetPort} onChange={(event) => setLinkTargetPort(event.target.value)} aria-label="对端端口">
+									{Array.from({ length: 32 }, (_, index) => 'Ethernet' + String(index)).map((portName) => <option key={portName} value={portName}>{portName}</option>)}
+								</select>
+								<input value={linkNote} onChange={(event) => setLinkNote(event.target.value)} placeholder="备注(可选)" maxLength={120} />
+								<button className="lab-btn" disabled={linkBusy} onClick={() => { void registerLink() }}>{linkBusy ? '保存中…' : '登记'}</button>
+							</div>
+							{linkError !== undefined && <p className="lab-error">{linkError}</p>}
+						</div>
+						)}
 						<div className="lab-swdetail-links">
 							{selectedLinks.map((link) => (
 								<div key={link.id} className="lab-linkrow">
 									<span className="lab-mono">{endpointLabel(link.a.sw, link.a.port)} ↔ {endpointLabel(link.b.sw, link.b.port)}</span>
-									<span className={'lab-tag ' + link.source}>{link.source}</span>
+									<span className={'lab-tag ' + link.source}>{link.source === 'manual' ? '手工' : link.source}</span>{link.source === 'manual' && <button className="lab-btn" disabled={linkBusy} onClick={() => { void removeLink(link.id) }} title="删除手工登记的链路">删除</button>}
 								</div>
 							))}
 						</div>

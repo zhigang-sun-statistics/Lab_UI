@@ -1,0 +1,34 @@
+/* SSH session audit view — DSH tokens. */
+.au-root{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dsw-alias-bg-base,#0d1217);color:var(--dsw-alias-label-primary,#dce5eb);font-family:var(--dsw-font-family,Inter,'Segoe UI','Microsoft YaHei',sans-serif);font-size:13px}
+.au-toolbar{display:flex;align-items:center;gap:14px;flex:none;min-height:48px;padding:6px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#29343e);background:var(--dsw-alias-bg-layer-1,#111820)}
+.au-toolbar small{display:block;color:var(--dsw-alias-label-caption,#62cda4);font:700 9px/1.4 ui-monospace,monospace;letter-spacing:.12em}
+.au-toolbar strong{display:block;font-size:13px}
+.au-flex{flex:1}
+.au-note{color:var(--dsw-alias-label-tertiary,#71838e);font-size:11px}
+.au-error{flex:none;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-state-error-primary,#75444c);background:#371e23;color:#f09aa3;font-size:12px}
+.au-list{flex:none;max-height:45%;overflow:auto;border-bottom:1px solid var(--dsw-alias-border-l1,#25313a)}
+.au-row{display:grid;grid-template-columns:minmax(150px,1.2fr) 90px 90px 90px 80px 110px 70px 64px;align-items:center;column-gap:10px;min-height:40px;padding:0 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#1d272e)}
+.au-row:hover{background:var(--dsw-alias-interactive-bg-hover,#16232a)}
+.au-row.active{background:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-interactive-bg-active,#183329))}
+.au-head{min-height:34px;background:var(--dsw-alias-bg-layer-1,#0d1419);color:var(--dsw-alias-label-secondary,#9cadb7);font-size:11px;font-weight:600;position:sticky;top:0}
+.au-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.au-row code{font:11px ui-monospace,monospace;color:var(--dsw-alias-label-secondary,#9cadb7)}
+.au-row b{font-weight:600}
+.au-view{padding:4px 10px;border:1px solid var(--dsw-alias-border-l2,#34434d);border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary,#9cadb7);font-size:11px;cursor:pointer}
+.au-view:hover{border-color:var(--dsw-alias-state-business-primary,#59d3a4);color:var(--dsw-alias-label-primary,#fff)}
+.au-empty{padding:18px 14px;color:var(--dsw-alias-label-tertiary,#73848f);font-size:12px;text-align:center}
+.au-detail{display:flex;flex-direction:column;flex:1;min-height:0}
+.au-detail>header{display:flex;align-items:center;gap:12px;flex:none;min-height:42px;padding:0 14px;border-bottom:1px solid var(--dsw-alias-border-l1,#1d272e);background:var(--dsw-alias-bg-layer-1,#0d1419)}
+.au-detail>header>div{flex:1;min-width:0}
+.au-detail small{display:block;color:var(--dsw-alias-label-caption,#62cda4);font:700 9px/1.4 ui-monospace,monospace;letter-spacing:.12em}
+.au-detail strong{display:block;margin-top:2px;font-size:12px}
+.au-toggle{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary,#8d9baa);font-size:11px;cursor:pointer}
+.au-events{flex:1;min-height:0;overflow:auto;padding:10px 14px}
+.au-event{display:grid;grid-template-columns:70px 44px 1fr;gap:10px;align-items:start;padding:5px 0;border-bottom:1px solid var(--dsw-alias-border-l1,#1d272e)}
+.au-event time{color:var(--dsw-alias-label-tertiary,#71838e);font:10px ui-monospace,monospace;padding-top:2px}
+.au-kind{color:var(--dsw-alias-label-secondary,#9cadb7);font-size:11px;padding-top:1px}
+.au-event pre{margin:0;white-space:pre-wrap;word-break:break-all;font:12px/1.5 'Cascadia Mono',Consolas,ui-monospace,monospace;color:var(--dsw-alias-label-primary,#c7d3da)}
+.au-event.au-in pre{color:#8ee6b8}
+.au-event.au-out pre{color:#9db4c8;opacity:.85}
+.au-event.au-cap pre{color:#f2d18a}
+@media (max-width:900px){.au-row{grid-template-columns:minmax(120px,1fr) 80px 80px 60px 60px 64px}.au-row span:nth-child(4),.au-row span:nth-child(7){display:none}}

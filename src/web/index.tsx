@@ -29,7 +29,7 @@ function WebApp(): JSX.Element {
   useEffect(() => { void fetch('/api/lab/session').then(async (response) => { if (response.ok) { const session = await response.json() as { username: string }; setUser(session.username) } }).finally(() => setChecking(false)) }, [])
   if (checking) return <div className="web-boot"><StyleInjector /><span className="web-brand-mark">L</span><p>正在连接设备管理服务…</p></div>
   if (user === null) return <Login onLogin={setUser} />
-  return <DeviceManagementView visible showCi={false} onLogout={() => setUser(null)} />
+  return <DeviceManagementView visible showCi={false} showAudit onLogout={() => setUser(null)} />
 }
 
 const root = document.getElementById('root')

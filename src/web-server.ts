@@ -11,6 +11,8 @@ import { loadExperimentDefinition } from './experiment.ts'
 import { consoleTail as jenkinsConsoleTail, listBuilds as jenkinsListBuilds, listJobs as jenkinsListJobs } from './jenkins/service.ts'
 import { analyzeBuild as jenkinsAnalyzeBuild, readReport as jenkinsReadReport } from './jenkins/analyze.ts'
 import { parseSwkitLockUsers, parseSws } from './parser.ts'
+import { listSessions, readSession, startSession } from './audit/service.ts'
+import { addManualLink, listManualLinks, removeManualLink, pairKey } from './links/service.ts'
 import type { ActualSwitchUser, ActualUsageResponse } from './types.ts'
 import { getProvider, setProvider } from './agent/service.ts'
 import { cancelTransfer, createDownloadTask, createUploadTask, listRemote, listTransfers, makeRemoteDirectory, readDownloadedFile, readRemoteText, receiveUpload, writeRemoteText } from './file-transfer/service.ts'
@@ -132,6 +134,15 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   }
   const jenkinsConsoleMatch = path.match(/^\/api\/jenkins\/jobs\/([^\/]+)\/builds\/(\d+)\/console$/)
   if (jenkinsConsoleMatch !== null && req.method === 'GET') { try { json(res, 200, await jenkinsConsoleTail(decodeURIComponent(jenkinsConsoleMatch[1] ?? ''), Number(jenkinsConsoleMatch[2] ?? '0'))) } catch (jenkinsError) { json(res, 502, { error: String(jenkinsError instanceof Error ? jenkinsError.message : jenkinsError) }) } return true }
+  if (path === '/api/audit/sessions' && req.method === 'GET') { json(res, 200, { sessions: await listSessions(Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('limit') ?? 50)) }); return true }
+  const auditMatch = path.match(/^\/api\/audit\/sessions\/(s_[a-f0-9-]+)$/)
+  if (auditMatch !== null && req.method === 'GET') {
+    const kinds = new URL(req.url ?? '/', 'http://localhost').searchParams.get('kinds')
+    const result = await readSession(auditMatch[1] ?? '', kinds === null ? undefined : new Set(kinds.split(',') as Array<'open'|'in'|'out'|'cap'|'close'>))
+    if (result === undefined) { json(res, 404, { error: 'session not found' }); return true }
+    json(res, 200, result); return true
+  }
+  if (path === '/api/lab/links' && req.method === 'GET') { json(res, 200, { links: await listManualLinks() }); return true }
   const lab = await labForSession(session)
   if (path === '/api/lab/actual-usage' && req.method === 'GET') { json(res, 200, await getActualUsage(lab)); return true }
   if (path === '/api/files/me/switches' && req.method === 'GET') { json(res, 200, { switches: lab.switches.map((sw) => ({ id: sw.id, name: sw.name, ip: sw.ip })) }); return true }
@@ -147,12 +158,25 @@ const api = async (req: IncomingMessage, res: ServerResponse, path: string): Pro
   if (transferDownloadMatch !== null && req.method === 'GET') { const result = await readDownloadedFile(session.username, transferDownloadMatch[1] ?? ''); res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(result.task.fileName), 'content-length': String(result.data.length), 'cache-control': 'no-store' }); res.end(result.data); return true }
   const transferCancelMatch = path.match(/^\/api\/files\/me\/transfers\/(transfer_[a-f0-9-]+)\/cancel$/)
   if (transferCancelMatch !== null && req.method === 'POST') { json(res, 200, await cancelTransfer(session.username, transferCancelMatch[1] ?? '')); return true }
+  if (path === '/api/lab/links' && req.method === 'POST') {
+    const input = await body(req)
+    if (typeof input.aSw !== 'string' || typeof input.aPort !== 'string' || typeof input.bSw !== 'string' || typeof input.bPort !== 'string') { json(res, 400, { error: 'aSw, aPort, bSw, bPort are required' }); return true }
+    const known = new Set(lab.switches.map((sw) => sw.id))
+    if (!known.has(input.aSw) || !known.has(input.bSw)) { json(res, 400, { error: 'unknown switch' }); return true }
+    try { json(res, 201, { links: await addManualLink({ aSw: input.aSw, aPort: input.aPort, bSw: input.bSw, bPort: input.bPort, note: typeof input.note === 'string' ? input.note : undefined }) }) } catch (linkError) { json(res, 400, { error: String(linkError instanceof Error ? linkError.message : linkError) }) }
+    return true
+  }
+  const linkMatch = path.match(/^\/api\/lab\/links\/(manual:[^\/]+)$/)
+  if (linkMatch !== null && req.method === 'DELETE') { try { json(res, 200, { links: await removeManualLink(decodeURIComponent(linkMatch[1] ?? '')) }) } catch (linkError) { json(res, 400, { error: String(linkError instanceof Error ? linkError.message : linkError) }) } return true }
   if (path === '/api/lab/experiment' && req.method === 'GET') { json(res, 200, await loadExperimentDefinition()); return true }
   if (path === '/api/lab/topology' && req.method === 'GET') {
     const started = Date.now()
     const collected = await getCollection(lab, new URL(req.url ?? '/', 'http://localhost').searchParams.get('fresh') === '1')
     const result = buildTopology(lab, collected)
-    json(res, 200, { fetchedAt: Date.now(), durationMs: Date.now() - started, cached: false, ...result }); return true
+    // Merge manually registered cabling; LLDP-observed pairs win over manual.
+    const observed = new Set(result.links.map((link) => pairKey(link.a, link.b)))
+    const manual = (await listManualLinks()).filter((link) => !observed.has(pairKey(link.a, link.b)))
+    json(res, 200, { fetchedAt: Date.now(), durationMs: Date.now() - started, cached: false, ...result, links: [...result.links, ...manual] }); return true
   }
   if (path === '/api/lab/locks' && req.method === 'GET') {
     const collected = await getCollection(lab)
@@ -192,14 +216,15 @@ server.on('upgrade', (req, socket, head) => {
   if (url.pathname !== '/api/lab/ssh' || session === undefined) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return }
   wss.handleUpgrade(req, socket, head, (ws) => {
     const switchId = url.searchParams.get('switch') ?? ''
-    void labForSession(session).then((lab) => openInteractiveShell(lab, switchId, 120, 34, (data) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() })).then((shell) => {
+    const audit = startSession(session.username, switchId)
+    void labForSession(session).then((lab) => openInteractiveShell(lab, switchId, 120, 34, (data) => { audit.output(data); if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data })) }, (message) => { if (message !== undefined && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message })); ws.close() })).then((shell) => {
       const usageId = randomBytes(16).toString('hex')
       activeSshSessions.set(usageId, { id: usageId, username: session.username, switchId, startedAt: Date.now() })
       if (ws.readyState !== ws.OPEN) { activeSshSessions.delete(usageId); shell.close() }
       const wsPing = setInterval(() => { if (ws.readyState === ws.OPEN) ws.ping() }, 30_000)
-      ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') shell.write(message.data); if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
-      ws.on('close', () => { clearInterval(wsPing); activeSshSessions.delete(usageId); shell.close() })
-    }).catch((error) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
+      ws.on('message', (raw) => { try { const message = JSON.parse(raw.toString()) as { type?: string; data?: string; cols?: number; rows?: number }; if (message.type === 'input' && typeof message.data === 'string') { audit.input(message.data); shell.write(message.data) }; if (message.type === 'resize' && typeof message.cols === 'number' && typeof message.rows === 'number') shell.resize(message.cols, message.rows) } catch {} })
+      ws.on('close', () => { clearInterval(wsPing); activeSshSessions.delete(usageId); audit.end(); shell.close() })
+    }).catch((error) => { audit.end(); if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: String(error instanceof Error ? error.message : error) })); ws.close() })
   })
 })
 
